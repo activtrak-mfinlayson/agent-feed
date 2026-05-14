@@ -27,6 +27,7 @@ When both capture the same turn, the UI coalesces by `request_id`. Neither block
 git clone <repo>
 cd agent-feed
 npm install
+npm link
 
 # Start everything
 agent-feed start
@@ -41,12 +42,16 @@ agent-feed stop
 ### Shell integration (recommended)
 
 ```bash
-npm link
 echo 'eval "$(agent-feed shell-init)"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
 Automatically sets/clears env vars on start/stop. New tabs pick up the proxy if running.
+
+`agent-feed` is exposed through npm's `bin` linking. If your shell prints
+`zsh: command not found: agent-feed`, run `npm link` from the repo again.
+With Node version managers such as mise, links are scoped to the active Node
+install, so switching Node versions may require rerunning `npm link`.
 
 ## CLI
 
