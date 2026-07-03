@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { App } from '../app.js';
 import { loadConfig } from '../config.js';
 import { validateClassifierWithFallback } from '../classifier/index.js';
@@ -574,9 +575,26 @@ fi`;
 // Exports for testing
 export { rotateLogIfNeeded, MAX_LOG_SIZE };
 
-// Parse CLI args and run if executed as main module (not imported)
-// Check if this file is the entry point by examining import.meta.url
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Parse CLI args and run if executed as main module (not imported).
+// Raw string comparison against process.argv[1] breaks when this file is
+// invoked through a symlink (e.g. the npm-linked `agent-feed` bin) or via a
+// relative path — import.meta.url is always an absolute, URL-encoded
+// file:// URL, while argv[1] is whatever path the shell passed in. Resolve
+// both sides through pathToFileURL (and realpath, to see through symlinks)
+// before comparing.
+function isMainModule() {
+  const entryPoint = process.argv[1];
+  if (!entryPoint) return false;
+  const entryUrl = pathToFileURL(entryPoint).href;
+  if (import.meta.url === entryUrl) return true;
+  try {
+    return import.meta.url === pathToFileURL(fs.realpathSync(entryPoint)).href;
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
   const args = process.argv.slice(2);
   const command = args[0];
   const verbose = args.includes('--verbose');
