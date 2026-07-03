@@ -3,7 +3,7 @@
   "type": "module",
   "version": "0.1.0",
   "description": "Transparent proxy that captures coding agent responses and documents decisions",
-  "main": "src/index.js",
+  "main": "src/app.js",
   "bin": {
     "agent-feed": "./src/cli/index.js"
   },
