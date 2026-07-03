@@ -189,12 +189,19 @@ describe('Database', () => {
       // Get total size including WAL/SHM files
       const totalSize = await db.getDbSizeBytes();
 
-      // Total size should be >= main db file size
+      // Sum the sidecar files directly so this test actually verifies they
+      // are included, rather than relying on totalSize >= mainDbSize (which
+      // would also pass with the old single-file implementation if the main
+      // db file happened to grow between measurements, e.g. via checkpoint).
+      const statSize = (p) => {
+        try { return fs.statSync(p).size; } catch { return 0; }
+      };
+      const expectedSize = statSize(db.dbPath) + statSize(`${db.dbPath}-wal`) + statSize(`${db.dbPath}-shm`);
+
+      assert.equal(totalSize, expectedSize,
+        `getDbSizeBytes() (${totalSize}) should equal the sum of db+wal+shm (${expectedSize})`);
       assert.ok(totalSize >= mainDbSize,
         `Total size (${totalSize}) should include main db file (${mainDbSize})`);
-
-      // When WAL mode is active, total size should typically exceed main file size
-      // due to WAL/SHM files
       assert.ok(totalSize > 0, 'Total size should be greater than 0');
     });
   });

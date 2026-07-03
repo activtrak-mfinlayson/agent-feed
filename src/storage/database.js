@@ -466,7 +466,8 @@ export class Database {
 
     for (const file of files) {
       try {
-        totalSize += fs.statSync(file).size;
+        const stats = await fs.promises.stat(file);
+        totalSize += stats.size;
       } catch {
         // File doesn't exist, skip it
       }
