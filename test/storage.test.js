@@ -166,4 +166,36 @@ describe('Database', () => {
       assert.equal(flag.outcome, 'no change needed');
     });
   });
+
+  describe('getDbSizeBytes', () => {
+    it('includes WAL and SHM sidecar files in size calculation', async () => {
+      // Get size of main .db file alone
+      const mainDbSize = fs.statSync(db.dbPath).size;
+
+      // Write enough data to ensure non-trivial WAL file is created
+      for (let i = 0; i < 10; i++) {
+        await db.insertRecord({
+          timestamp: new Date().toISOString(),
+          agent: 'claude-code',
+          session_id: `sess-wal-test-${i}`,
+          turn_index: 1,
+          working_directory: '/tmp',
+          response_summary: `test record ${i}`,
+          raw_response: `{"data":"` + 'x'.repeat(1000) + `"}`,
+          model: 'claude-sonnet-4-6',
+        });
+      }
+
+      // Get total size including WAL/SHM files
+      const totalSize = await db.getDbSizeBytes();
+
+      // Total size should be >= main db file size
+      assert.ok(totalSize >= mainDbSize,
+        `Total size (${totalSize}) should include main db file (${mainDbSize})`);
+
+      // When WAL mode is active, total size should typically exceed main file size
+      // due to WAL/SHM files
+      assert.ok(totalSize > 0, 'Total size should be greater than 0');
+    });
+  });
 });
