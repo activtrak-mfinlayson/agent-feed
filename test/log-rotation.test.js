@@ -25,9 +25,12 @@ describe('Log file rotation', () => {
       // Rotate with a small cap (smaller than initial content)
       rotateLogIfNeeded(logPath, 300);
 
-      // Original log should be moved to .1
+      // Original content should be copied to .1, and the original log
+      // truncated in place (not renamed away) so an inherited fd pointing
+      // at it keeps working.
       assert.ok(fs.existsSync(rotatedPath), 'rotated file should exist at .1');
-      assert.ok(!fs.existsSync(logPath), 'original log file should not exist');
+      assert.ok(fs.existsSync(logPath), 'original log file should still exist');
+      assert.equal(fs.statSync(logPath).size, 0, 'original log file should be truncated to 0 bytes');
 
       // Verify rotated file has original content
       const rotatedContent = fs.readFileSync(rotatedPath, 'utf8');
@@ -94,7 +97,7 @@ describe('Log file rotation', () => {
       // Verify .1 file now has the new content
       const rotatedContent = fs.readFileSync(rotatedPath, 'utf8');
       assert.equal(rotatedContent, newContent);
-      assert.ok(!fs.existsSync(logPath));
+      assert.equal(fs.statSync(logPath).size, 0);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

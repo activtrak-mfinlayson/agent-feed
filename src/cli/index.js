@@ -170,8 +170,14 @@ function rotateLogIfNeeded(logPath, maxSize) {
       const stats = fs.statSync(logPath);
       if (stats.size >= maxSize) {
         const rotatedPath = `${logPath}.1`;
-        // Rotate: move current log to .1 (overwrites if .1 exists)
-        fs.renameSync(logPath, rotatedPath);
+        // Copy-and-truncate instead of rename: the daemon's stdout/stderr
+        // fds are inherited at spawn time and bound to the log file's inode,
+        // not its path. A rename would leave those fds appending to the
+        // now-rotated file forever, while the "active" path silently stops
+        // receiving daemon output. Truncating in place keeps the same inode
+        // at the same path, so inherited fds keep working.
+        fs.copyFileSync(logPath, rotatedPath);
+        fs.truncateSync(logPath, 0);
       }
     }
   } catch (err) {
