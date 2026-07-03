@@ -3,12 +3,12 @@
   "type": "module",
   "version": "0.1.0",
   "description": "Transparent proxy that captures coding agent responses and documents decisions",
-  "main": "src/index.js",
+  "main": "src/app.js",
   "bin": {
     "agent-feed": "./src/cli/index.js"
   },
   "scripts": {
-    "start": "node src/index.js",
+    "start": "node src/cli/index.js start",
     "test": "node --test",
     "test:watch": "node --test --watch",
     "dev:ui": "cd src/ui/frontend && npm run dev",

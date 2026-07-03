@@ -457,7 +457,22 @@ export class Database {
   }
 
   async getDbSizeBytes() {
-    try { return fs.statSync(this.dbPath).size; }
-    catch { return 0; }
+    let totalSize = 0;
+    const files = [
+      this.dbPath,
+      `${this.dbPath}-wal`,
+      `${this.dbPath}-shm`
+    ];
+
+    for (const file of files) {
+      try {
+        const stats = await fs.promises.stat(file);
+        totalSize += stats.size;
+      } catch {
+        // File doesn't exist, skip it
+      }
+    }
+
+    return totalSize;
   }
 }

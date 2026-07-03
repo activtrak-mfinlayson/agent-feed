@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { App } from '../app.js';
 import { loadConfig } from '../config.js';
 import { validateClassifierWithFallback } from '../classifier/index.js';
@@ -14,6 +15,7 @@ const PID_FILE = path.join(AGENT_FEED_DIR, 'agent-feed.pid');
 const LOG_FILE = path.join(AGENT_FEED_DIR, 'agent-feed.log');
 const CONFIG_FILE = path.join(AGENT_FEED_DIR, 'config.toml');
 const ENV_FILE = path.join(AGENT_FEED_DIR, 'env');
+const MAX_LOG_SIZE = 10 * 1024 * 1024; // 10 MB cap for the log file
 const PROXY_ENV_VARS = [
   'ANTHROPIC_BASE_URL', 'OPENAI_BASE_URL', 'GOOGLE_API_BASE_URL',
   'GOOGLE_GEMINI_BASE_URL', 'CODE_ASSIST_ENDPOINT',
@@ -163,8 +165,31 @@ async function killAndWait(pid, { timeoutMs = 5000 } = {}) {
   return !isProcessRunning(pid);
 }
 
+function rotateLogIfNeeded(logPath, maxSize) {
+  try {
+    if (fs.existsSync(logPath)) {
+      const stats = fs.statSync(logPath);
+      if (stats.size >= maxSize) {
+        const rotatedPath = `${logPath}.1`;
+        // Copy-and-truncate instead of rename: the daemon's stdout/stderr
+        // fds are inherited at spawn time and bound to the log file's inode,
+        // not its path. A rename would leave those fds appending to the
+        // now-rotated file forever, while the "active" path silently stops
+        // receiving daemon output. Truncating in place keeps the same inode
+        // at the same path, so inherited fds keep working.
+        fs.copyFileSync(logPath, rotatedPath);
+        fs.truncateSync(logPath, 0);
+      }
+    }
+  } catch (err) {
+    // If rotation fails, continue without rotating — don't block the append
+    // (e.g., permission error, racing rename with another process)
+  }
+}
+
 function log(msg) {
   const line = `[${new Date().toISOString()}] ${msg}\n`;
+  rotateLogIfNeeded(LOG_FILE, MAX_LOG_SIZE);
   fs.appendFileSync(LOG_FILE, line);
 }
 
@@ -547,40 +572,63 @@ fi`;
   console.log(snippet);
 }
 
-// Parse CLI args
-const args = process.argv.slice(2);
-const command = args[0];
-const verbose = args.includes('--verbose');
-const daemon = args.includes('--daemon');
+// Exports for testing
+export { rotateLogIfNeeded, MAX_LOG_SIZE };
 
-switch (command) {
-  case 'start':
-    await cmdStart({ verbose, daemon });
-    break;
-  case 'stop':
-    await cmdStop();
-    break;
-  case 'restart':
-    await cmdRestart();
-    break;
-  case 'eval':
-    await cmdEval(args[1]);
-    break;
-  case 'env':
-    cmdEnv();
-    break;
-  case 'shell-init':
-    cmdShellInit();
-    break;
-  default:
-    console.log('Usage:');
-    console.log('  agent-feed start               Start proxy, classifier, and UI in background');
-    console.log('  agent-feed start --verbose      Start in foreground with diagnostic logging');
-    console.log('  agent-feed stop                 Stop all services');
-    console.log('  agent-feed restart              Stop and restart all services');
-    console.log('  agent-feed eval classifier      Run classifier precision/recall eval');
-    console.log('  agent-feed eval show            Show missed flags and false positives');
-    console.log('  agent-feed env                  Print shell env vars (source with eval)');
-    console.log('  agent-feed shell-init           Print shell integration snippet for .zshrc');
-    process.exit(command ? 1 : 0);
+// Parse CLI args and run if executed as main module (not imported).
+// Raw string comparison against process.argv[1] breaks when this file is
+// invoked through a symlink (e.g. the npm-linked `agent-feed` bin) or via a
+// relative path — import.meta.url is always an absolute, URL-encoded
+// file:// URL, while argv[1] is whatever path the shell passed in. Resolve
+// both sides through pathToFileURL (and realpath, to see through symlinks)
+// before comparing.
+function isMainModule() {
+  const entryPoint = process.argv[1];
+  if (!entryPoint) return false;
+  const entryUrl = pathToFileURL(entryPoint).href;
+  if (import.meta.url === entryUrl) return true;
+  try {
+    return import.meta.url === pathToFileURL(fs.realpathSync(entryPoint)).href;
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
+  const args = process.argv.slice(2);
+  const command = args[0];
+  const verbose = args.includes('--verbose');
+  const daemon = args.includes('--daemon');
+
+  switch (command) {
+    case 'start':
+      await cmdStart({ verbose, daemon });
+      break;
+    case 'stop':
+      await cmdStop();
+      break;
+    case 'restart':
+      await cmdRestart();
+      break;
+    case 'eval':
+      await cmdEval(args[1]);
+      break;
+    case 'env':
+      cmdEnv();
+      break;
+    case 'shell-init':
+      cmdShellInit();
+      break;
+    default:
+      console.log('Usage:');
+      console.log('  agent-feed start               Start proxy, classifier, and UI in background');
+      console.log('  agent-feed start --verbose      Start in foreground with diagnostic logging');
+      console.log('  agent-feed stop                 Stop all services');
+      console.log('  agent-feed restart              Stop and restart all services');
+      console.log('  agent-feed eval classifier      Run classifier precision/recall eval');
+      console.log('  agent-feed eval show            Show missed flags and false positives');
+      console.log('  agent-feed env                  Print shell env vars (source with eval)');
+      console.log('  agent-feed shell-init           Print shell integration snippet for .zshrc');
+      process.exit(command ? 1 : 0);
+  }
 }
