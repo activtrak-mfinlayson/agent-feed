@@ -30,25 +30,99 @@ Flag types (use exactly these strings):
 Extract every qualifying flag you find. Include all flags with confidence >= 0.7.
 If there are no qualifying flags, return an empty array.`;
 
+export const DIGEST_SYNTHESIS_PROMPT = `You are condensing a coding agent session's extracted flags into a short digest for a human reviewer.
+
+Return ONLY a JSON object with no preamble, explanation, or markdown formatting. No backticks.
+
+The JSON must have this exact shape:
+{
+  "highlights": [
+    {
+      "summary": "1-2 sentence highlight describing a significant decision, risk, or pattern from the session",
+      "flag_ids": ["id of each underlying flag this highlight summarizes"]
+    }
+  ]
+}
+
+You will be given a JSON array of flags, each with an "id", "type", "content", and "confidence".
+
+Condense the flags into roughly a half-dozen (around 4-8) of the most significant highlights. Prioritize
+flags of type decision, risk, architecture, tradeoff, and constraint over routine or duplicate-looking
+flags (e.g. repeated assumption/pattern/dependency flags that don't materially change the reviewer's
+understanding of the session). Group related or duplicate flags into a single highlight referencing all
+of their ids where appropriate, rather than producing one highlight per flag.
+
+Every flag_ids value must be an id that actually appears in the input flags. If there are no significant
+flags, return an empty highlights array.`;
+
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 
-function buildAnthropicBody(model, content) {
+function buildAnthropicBody(model, promptText, userMessage) {
   return {
     model,
     max_tokens: 1000,
-    messages: [{ role: 'user', content: `${CLASSIFICATION_PROMPT}\n\nAgent response to analyze:\n\n${content}` }],
+    messages: [{ role: 'user', content: `${promptText}\n\n${userMessage}` }],
   };
 }
 
-function buildOpenAICompatibleBody(model, content) {
+function buildOpenAICompatibleBody(model, promptText, userMessage) {
   return {
     model,
     max_tokens: 1000,
     messages: [
-      { role: 'system', content: CLASSIFICATION_PROMPT },
-      { role: 'user', content: `Agent response to analyze:\n\n${content}` },
+      { role: 'system', content: promptText },
+      { role: 'user', content: userMessage },
     ],
   };
+}
+
+/**
+ * Shared provider-branching request/response plumbing for Anthropic vs.
+ * OpenAI-compatible (ollama/lmstudio) LLM calls. Builds the provider-specific
+ * request, sends it, and extracts the raw text of the model's reply.
+ *
+ * Returns the response text on success, or `null` if the upstream request
+ * failed (non-ok HTTP status) -- callers are responsible for turning `null`
+ * into their own empty/failure result shape, since that shape differs
+ * between the classifier and the digest synthesizer.
+ */
+async function callLLMProvider(config, fetchFn, promptText, userMessage) {
+  const { provider, model, base_url } = config;
+
+  let url;
+  let body;
+  const headers = { 'Content-Type': 'application/json' };
+
+  if (provider === 'anthropic') {
+    url = ANTHROPIC_API_URL;
+    body = buildAnthropicBody(model, promptText, userMessage);
+    // API key injected by environment at runtime
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (apiKey) headers['x-api-key'] = apiKey;
+    headers['anthropic-version'] = '2023-06-01';
+  } else {
+    // ollama and lmstudio both expose OpenAI-compatible /v1/chat/completions
+    url = `${base_url}/v1/chat/completions`;
+    body = buildOpenAICompatibleBody(model, promptText, userMessage);
+  }
+
+  const response = await fetchFn(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const data = await response.json();
+
+  // Handle both Anthropic and OpenAI response shapes
+  if (provider === 'anthropic') {
+    return data.content?.find(b => b.type === 'text')?.text ?? '';
+  }
+  return data.choices?.[0]?.message?.content ?? '';
 }
 
 function parseClassifierResponse(text) {
@@ -64,48 +138,59 @@ function parseClassifierResponse(text) {
   }
 }
 
+function parseDigestResponse(text) {
+  try {
+    const clean = text.replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(clean);
+    return {
+      highlights: Array.isArray(parsed.highlights) ? parsed.highlights : [],
+    };
+  } catch {
+    return { highlights: [] };
+  }
+}
+
 export function buildClassifier(config, fetchFn = fetch) {
-  const { provider, model, base_url } = config;
-
   return async function classify(content) {
-    let url;
-    let body;
-    const headers = { 'Content-Type': 'application/json' };
+    const text = await callLLMProvider(
+      config,
+      fetchFn,
+      CLASSIFICATION_PROMPT,
+      `Agent response to analyze:\n\n${content}`,
+    );
 
-    if (provider === 'anthropic') {
-      url = ANTHROPIC_API_URL;
-      body = buildAnthropicBody(model, content);
-      // API key injected by environment at runtime
-      const apiKey = process.env.ANTHROPIC_API_KEY;
-      if (apiKey) headers['x-api-key'] = apiKey;
-      headers['anthropic-version'] = '2023-06-01';
-    } else {
-      // ollama and lmstudio both expose OpenAI-compatible /v1/chat/completions
-      url = `${base_url}/v1/chat/completions`;
-      body = buildOpenAICompatibleBody(model, content);
-    }
-
-    const response = await fetchFn(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
+    if (text === null) {
       return { response_summary: '', flags: [] };
     }
 
-    const data = await response.json();
+    return parseClassifierResponse(text);
+  };
+}
 
-    // Handle both Anthropic and OpenAI response shapes
-    let text = '';
-    if (provider === 'anthropic') {
-      text = data.content?.find(b => b.type === 'text')?.text ?? '';
-    } else {
-      text = data.choices?.[0]?.message?.content ?? '';
+/**
+ * Builds a digest synthesizer: an async function that condenses a session's
+ * flags into a small set of validated, highlight-worthy summaries. Reuses
+ * the same provider-branching plumbing as `buildClassifier`, with a
+ * different prompt and expected response shape.
+ */
+export function buildDigestSynthesizer(config, fetchFn = fetch) {
+  return async function synthesize(flags) {
+    if (!Array.isArray(flags) || flags.length === 0) {
+      return { highlights: [] };
     }
 
-    return parseClassifierResponse(text);
+    const text = await callLLMProvider(
+      config,
+      fetchFn,
+      DIGEST_SYNTHESIS_PROMPT,
+      `Flags to synthesize:\n\n${JSON.stringify(flags)}`,
+    );
+
+    if (text === null) {
+      return { highlights: [] };
+    }
+
+    return parseDigestResponse(text);
   };
 }
 
