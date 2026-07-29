@@ -104,3 +104,19 @@ export interface ToolDecisionsResponse {
   decisions: OtelEvent[];
   results: OtelEvent[];
 }
+
+// Session flag digest ────────────────────────────────────────────────────
+export interface DigestHighlight {
+  summary: string;
+  flag_ids: string[];
+}
+
+export type SessionDigest =
+  | { status: "below_threshold"; latest_turn_at: string }
+  | { status: "unavailable"; latest_turn_at: string }
+  | {
+      status: "ready";
+      highlights: DigestHighlight[];
+      generated_at: string;
+      latest_turn_at: string;
+    };

@@ -1,6 +1,7 @@
 import { useSession } from "@/hooks/use-session";
 import { useUpdateFlagStatus, useSaveNotes, useBulkUpdate } from "@/hooks/use-flag-mutations";
 import { TurnBlock } from "./turn-block";
+import { SessionDigest } from "./session-digest";
 import { ToolDecisionTimeline } from "./tool-decision-timeline";
 import { HookActivity } from "./hook-activity";
 import { MCPHealth } from "./mcp-health";
@@ -26,6 +27,10 @@ export function SessionDetail({ sessionId, modelFilter }: SessionDetailProps) {
   if (error || !records?.length) return <div className="p-10 text-center text-sm text-muted-foreground">Session not found.</div>;
 
   const allFlags = records.flatMap((r) => r.flags ?? []);
+  // Digest always covers the whole session regardless of the model filter
+  // (see plan's Key Technical Decisions), so its review-status lookups need
+  // the unfiltered flag set, not the possibly-filtered `records`/`allFlags`.
+  const digestFlags = (allRecords ?? []).flatMap((r) => r.flags ?? []);
   const unreviewed = allFlags.filter((f) => f.review_status === "unreviewed");
   const accepted = allFlags.filter((f) => f.review_status === "accepted").length;
   const needsChange = allFlags.filter((f) => f.review_status === "needs_change").length;
@@ -86,8 +91,9 @@ export function SessionDetail({ sessionId, modelFilter }: SessionDetailProps) {
         </div>
       )}
 
-      {/* OTel-derived signals (rendered only when /api/sessions/:id/* returns data) */}
+      {/* Digest + OTel-derived signals (each self-hides when not applicable) */}
       <div className="space-y-6 mb-8">
+        <SessionDigest sessionId={sessionId} flags={digestFlags} />
         <ToolDecisionTimeline sessionId={sessionId} />
         <HookActivity sessionId={sessionId} />
         <MCPHealth sessionId={sessionId} />
