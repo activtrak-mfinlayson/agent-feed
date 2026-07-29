@@ -167,6 +167,135 @@ describe('Database', () => {
     });
   });
 
+  describe('getFlagCountForSession', () => {
+    it('counts all flags for a session across multiple records and review statuses', async () => {
+      const sessionId = 'sess-flag-count-test';
+      const record1 = await db.insertRecord({
+        timestamp: new Date().toISOString(),
+        agent: 'claude-code',
+        session_id: sessionId,
+        turn_index: 1,
+        working_directory: '/tmp',
+        response_summary: 'first turn',
+        raw_response: '{}',
+        model: 'claude-sonnet-4-6',
+      });
+      const record2 = await db.insertRecord({
+        timestamp: new Date().toISOString(),
+        agent: 'claude-code',
+        session_id: sessionId,
+        turn_index: 2,
+        working_directory: '/tmp',
+        response_summary: 'second turn',
+        raw_response: '{}',
+        model: 'claude-sonnet-4-6',
+      });
+
+      const flagId1 = await db.insertFlag({
+        record_id: record1,
+        type: 'decision',
+        content: 'decision one',
+        confidence: 0.9,
+      });
+      await db.insertFlag({
+        record_id: record1,
+        type: 'risk',
+        content: 'risk one',
+        confidence: 0.8,
+      });
+      await db.insertFlag({
+        record_id: record2,
+        type: 'assumption',
+        content: 'assumption one',
+        confidence: 0.7,
+      });
+      await db.updateFlagReview(flagId1, { review_status: 'false_positive' });
+
+      const count = await db.getFlagCountForSession(sessionId);
+      assert.equal(count, 3, 'should count all flags regardless of review_status');
+    });
+
+    it('returns 0 (not an error) for a session with no flags', async () => {
+      const sessionId = 'sess-no-flags-test';
+      await db.insertRecord({
+        timestamp: new Date().toISOString(),
+        agent: 'claude-code',
+        session_id: sessionId,
+        turn_index: 1,
+        working_directory: '/tmp',
+        response_summary: 'a turn with no flags',
+        raw_response: '{}',
+        model: 'claude-sonnet-4-6',
+      });
+
+      const count = await db.getFlagCountForSession(sessionId);
+      assert.equal(count, 0);
+    });
+
+    it('returns 0 for a session_id that does not exist at all', async () => {
+      const count = await db.getFlagCountForSession('sess-does-not-exist');
+      assert.equal(count, 0);
+    });
+  });
+
+  describe('session digests', () => {
+    it('getSessionDigest returns null for a session with no saved digest', async () => {
+      const digest = await db.getSessionDigest('sess-digest-none');
+      assert.equal(digest, null);
+    });
+
+    it('round-trips content through saveSessionDigest/getSessionDigest', async () => {
+      const sessionId = 'sess-digest-roundtrip';
+      const content = {
+        highlights: [
+          { summary: 'Chose JWT over sessions', flag_ids: ['flag-a', 'flag-b'] },
+          { summary: 'Assumed postgres is available', flag_ids: ['flag-c'] },
+        ],
+      };
+
+      await db.saveSessionDigest(sessionId, {
+        generated_at: '2026-07-29T00:00:00.000Z',
+        flag_count_at_generation: 12,
+        content,
+        model: 'claude-sonnet-4-6',
+      });
+
+      const digest = await db.getSessionDigest(sessionId);
+      assert.ok(digest);
+      assert.equal(digest.session_id, sessionId);
+      assert.equal(digest.generated_at, '2026-07-29T00:00:00.000Z');
+      assert.equal(digest.flag_count_at_generation, 12);
+      assert.equal(digest.model, 'claude-sonnet-4-6');
+      assert.deepEqual(digest.content, content);
+    });
+
+    it('saving a digest twice for the same session upserts rather than duplicating', async () => {
+      const sessionId = 'sess-digest-upsert';
+
+      await db.saveSessionDigest(sessionId, {
+        generated_at: '2026-07-29T00:00:00.000Z',
+        flag_count_at_generation: 5,
+        content: { highlights: [{ summary: 'first pass', flag_ids: ['x'] }] },
+        model: 'claude-sonnet-4-6',
+      });
+      await db.saveSessionDigest(sessionId, {
+        generated_at: '2026-07-29T01:00:00.000Z',
+        flag_count_at_generation: 9,
+        content: { highlights: [{ summary: 'second pass', flag_ids: ['y', 'z'] }] },
+        model: 'claude-sonnet-4-7',
+      });
+
+      const digest = await db.getSessionDigest(sessionId);
+      assert.equal(digest.generated_at, '2026-07-29T01:00:00.000Z');
+      assert.equal(digest.flag_count_at_generation, 9);
+      assert.equal(digest.model, 'claude-sonnet-4-7');
+      assert.deepEqual(digest.content, { highlights: [{ summary: 'second pass', flag_ids: ['y', 'z'] }] });
+
+      const rows = db.db.prepare('SELECT COUNT(*) as count FROM session_digests WHERE session_id = ?').get(sessionId);
+      assert.equal(rows.count, 1, 'upsert must not create a duplicate row');
+    });
+  });
+
   describe('getDbSizeBytes', () => {
     it('includes WAL and SHM sidecar files in size calculation', async () => {
       // Get size of main .db file alone
