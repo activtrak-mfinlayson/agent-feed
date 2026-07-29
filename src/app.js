@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { Proxy } from './proxy/index.js';
 import { Database } from './storage/database.js';
 import { Pipeline } from './pipeline.js';
-import { buildClassifier, validateClassifierWithFallback } from './classifier/index.js';
+import { buildClassifier, buildDigestSynthesizer, validateClassifierWithFallback } from './classifier/index.js';
 import { createUIServer } from './ui/server.js';
 import { OtelReceiver } from './otel/receiver.js';
 import { OtelSink } from './otel/sink.js';
@@ -57,6 +57,16 @@ export class App {
       ? null
       : buildClassifier(classifierCfg);
 
+    // Build digest synthesizer function from the same already-resolved
+    // classifier config (provider/base_url), so a developer running a
+    // local-only classifier isn't silently exposed to a different provider
+    // via the digest path. `digest.model`, when set, only overrides the
+    // model name within that same resolved provider/base_url.
+    const digestCfg = this.config.digest ?? {};
+    const digestSynthesizer = this.skipClassifierValidation
+      ? null
+      : buildDigestSynthesizer({ ...classifierCfg, model: digestCfg.model || classifierCfg.model });
+
     // Build pipeline
     const pipeline = new Pipeline({ db: this._db, classifierFn });
 
@@ -97,7 +107,7 @@ export class App {
     }
 
     // Start UI server
-    this._uiServer = createUIServer({ db: this._db });
+    this._uiServer = createUIServer({ db: this._db, digestSynthesizer, digestConfig: digestCfg });
     await this._uiServer.listen(uiCfg.port);
     this.uiPort = this._uiServer.port;
 

@@ -24,6 +24,12 @@ export const defaultConfig = {
     port: 4318,
     max_body_bytes: 1_000_000,
   },
+  digest: {
+    enabled: true,
+    flag_threshold: 20,
+    active_window_minutes: 10,
+    model: '', // empty = use the classifier's resolved model as-is; non-empty overrides only the model name
+  },
 };
 
 function deepMerge(base, override) {

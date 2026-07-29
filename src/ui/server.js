@@ -52,9 +52,48 @@ function serveStatic(res, filePath) {
   return true;
 }
 
-export function createUIServer({ db }) {
+// Reduces a session's flags (already attached to records via getRecordsWithFlags)
+// down to the shape the digest synthesizer expects, and computes the two
+// values every digest response needs regardless of outcome: the session's
+// live latest-turn timestamp and the flat set of real flag ids (for
+// server-side validation of whatever the synthesizer returns).
+function summarizeSessionFlags(records) {
+  const latest_turn_at = records.reduce(
+    (max, r) => (r.timestamp && (!max || r.timestamp > max) ? r.timestamp : max),
+    null,
+  );
+  const flags = records.flatMap(r => r.flags ?? []);
+  const flagIds = new Set(flags.map(f => f.id));
+  const flagsForSynthesis = flags.map(f => ({
+    id: f.id,
+    type: f.type,
+    content: f.content,
+    confidence: f.confidence,
+  }));
+  return { latest_turn_at, flagIds, flagsForSynthesis };
+}
+
+// Drops any highlight whose flag_ids aren't ALL real flags in this session —
+// guards against hallucinated/stale ids from the synthesizer. A highlight
+// with no flag_ids at all references nothing and is dropped too.
+function validateHighlights(highlights, flagIds) {
+  if (!Array.isArray(highlights)) return [];
+  return highlights.filter(h =>
+    h && Array.isArray(h.flag_ids) && h.flag_ids.length > 0 && h.flag_ids.every(id => flagIds.has(id))
+  );
+}
+
+export function createUIServer({ db, digestSynthesizer = null, digestConfig = {} } = {}) {
   let server = null;
   let _port = null;
+
+  // Digest is only actually usable when both a synthesizer function was
+  // wired in (production: App.start(); tests: opt-in) AND it isn't
+  // explicitly disabled via config. Callers that construct createUIServer
+  // with just { db } (existing test files) get a safe disabled default
+  // rather than a crash on first digest request.
+  const digestEnabled = digestConfig.enabled !== false && typeof digestSynthesizer === 'function';
+  const flagThreshold = digestConfig.flag_threshold ?? 20;
 
   async function handleRequest(req, res) {
     const url = new URL(req.url, `http://localhost`);
@@ -160,6 +199,72 @@ export function createUIServer({ db }) {
       const sessionId = decodeURIComponent(mcpMatch[1]);
       const mcp = await db.getEventsForSession(sessionId, { kind: 'mcp' });
       return json(res, 200, mcp.map(e => ({ ...e, attributes: safeJsonParse(e.attributes) })));
+    }
+
+    // Session digest: on-demand synthesis of a session's flags into a small
+    // set of reviewer-facing highlights, cached until the live flag count
+    // changes. See docs/plans/2026-07-29-001-feat-session-flag-digest-plan.md.
+    const digestMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/digest$/);
+    if (method === 'GET' && digestMatch) {
+      // This is the first GET route whose side effect includes a billed LLM
+      // call and a DB write, so it requires same-origin before any other
+      // work — including DB reads — happens. Absent header covers curl/tests/CLI.
+      const secFetchSite = req.headers['sec-fetch-site'];
+      if (secFetchSite && secFetchSite !== 'same-origin') {
+        return json(res, 403, { error: 'Cross-site requests are not allowed for this endpoint' });
+      }
+
+      const sessionId = decodeURIComponent(digestMatch[1]);
+      const records = await db.getRecordsWithFlags(sessionId);
+      if (!records.length) return json(res, 404, { error: 'Session not found' });
+
+      const { latest_turn_at, flagIds, flagsForSynthesis } = summarizeSessionFlags(records);
+
+      if (!digestEnabled) {
+        return json(res, 200, { status: 'unavailable', latest_turn_at });
+      }
+
+      const liveFlagCount = await db.getFlagCountForSession(sessionId);
+      if (liveFlagCount < flagThreshold) {
+        return json(res, 200, { status: 'below_threshold', latest_turn_at });
+      }
+
+      const cached = await db.getSessionDigest(sessionId);
+      if (cached && cached.flag_count_at_generation === liveFlagCount) {
+        return json(res, 200, {
+          status: 'ready',
+          highlights: cached.content?.highlights ?? [],
+          generated_at: cached.generated_at,
+          latest_turn_at,
+        });
+      }
+
+      let synthesized;
+      try {
+        synthesized = await digestSynthesizer(flagsForSynthesis);
+      } catch (err) {
+        console.error('[agent-feed] digest synthesis failed:', err.message ?? err);
+        return json(res, 200, { status: 'unavailable', latest_turn_at });
+      }
+
+      const highlights = validateHighlights(synthesized?.highlights, flagIds);
+      if (!highlights.length) {
+        return json(res, 200, { status: 'unavailable', latest_turn_at });
+      }
+
+      const generated_at = new Date().toISOString();
+      try {
+        await db.saveSessionDigest(sessionId, {
+          generated_at,
+          flag_count_at_generation: liveFlagCount,
+          content: { highlights },
+          model: digestConfig.model || null,
+        });
+      } catch (err) {
+        console.error('[agent-feed] failed to save session digest:', err.message ?? err);
+      }
+
+      return json(res, 200, { status: 'ready', highlights, generated_at, latest_turn_at });
     }
 
     if (method === 'PATCH' && pathname === '/api/flags/bulk') {
