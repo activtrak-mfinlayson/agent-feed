@@ -11,7 +11,16 @@ interface FlagCardProps {
   onToggle: () => void;
   onStatusChange: (flagId: string, status: ReviewStatus) => void;
   onSaveNotes: (flagId: string, note: string | null, outcome: string | null) => void;
+  // Temporary visual treatment applied when this flag is one of several
+  // referenced by a just-clicked digest highlight (see session-detail.tsx).
+  ringed?: boolean;
+  // Lets the parent (SessionDetail, via TurnBlock) keep a ref to this flag's
+  // interactive toggle element, so a digest highlight click can scroll to
+  // and focus it regardless of which turn it lives in.
+  registerRef?: (el: HTMLElement | null) => void;
 }
+
+const RING_CLASSES = "ring-2 ring-primary ring-offset-1 ring-offset-background";
 
 const STATUS_OPTIONS: { value: ReviewStatus; label: string; key: string }[] = [
   { value: "accepted", label: "accept", key: "a" },
@@ -41,7 +50,7 @@ function getTypeColor(type: string) {
   return TYPE_COLOR[type] ?? "text-foreground";
 }
 
-export function FlagCard({ flag, expanded, onToggle, onStatusChange, onSaveNotes }: FlagCardProps) {
+export function FlagCard({ flag, expanded, onToggle, onStatusChange, onSaveNotes, ringed, registerRef }: FlagCardProps) {
   const isReviewed = flag.review_status !== "unreviewed";
   const [note, setNote] = useState(flag.reviewer_note ?? "");
   const [outcome, setOutcome] = useState(flag.outcome ?? "");
@@ -74,8 +83,12 @@ export function FlagCard({ flag, expanded, onToggle, onStatusChange, onSaveNotes
   if (isReviewed && !expanded) {
     return (
       <button
+        ref={registerRef}
         onClick={onToggle}
-        className="w-full text-left flex items-center gap-3 px-4 py-1.5 opacity-45 hover:opacity-70 transition-opacity cursor-pointer"
+        className={cn(
+          "w-full text-left flex items-center gap-3 px-4 py-1.5 opacity-45 hover:opacity-70 transition-opacity cursor-pointer",
+          ringed && RING_CLASSES,
+        )}
       >
         <span className={cn("font-mono text-[10px] uppercase tracking-wide w-24 shrink-0", getTypeColor(flag.type))}>
           {flag.type}
@@ -94,8 +107,17 @@ export function FlagCard({ flag, expanded, onToggle, onStatusChange, onSaveNotes
   // ── Collapsed: unreviewed items ──
   if (!expanded) {
     return (
-      <div className="flex items-start gap-3 px-4 py-2.5 hover:bg-accent/30 transition-colors">
-        <button onClick={onToggle} className="flex items-start gap-3 flex-1 text-left cursor-pointer min-w-0">
+      <div
+        className={cn(
+          "flex items-start gap-3 px-4 py-2.5 hover:bg-accent/30 transition-colors",
+          ringed && RING_CLASSES,
+        )}
+      >
+        <button
+          ref={registerRef}
+          onClick={onToggle}
+          className="flex items-start gap-3 flex-1 text-left cursor-pointer min-w-0"
+        >
           <span className={cn("font-mono text-[10px] uppercase tracking-wide w-24 shrink-0 pt-0.5", getTypeColor(flag.type))}>
             {flag.type}
           </span>
@@ -123,7 +145,7 @@ export function FlagCard({ flag, expanded, onToggle, onStatusChange, onSaveNotes
 
   // ── Expanded ──
   return (
-    <div className="bg-accent/20 px-4 py-3 space-y-3">
+    <div className={cn("bg-accent/20 px-4 py-3 space-y-3", ringed && RING_CLASSES)}>
       {/* Header row */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 min-w-0">
@@ -131,7 +153,11 @@ export function FlagCard({ flag, expanded, onToggle, onStatusChange, onSaveNotes
             {flag.type}
           </span>
           <div className="min-w-0">
-            <button onClick={onToggle} className="text-sm text-foreground font-medium cursor-pointer hover:text-muted-foreground transition-colors">
+            <button
+              ref={registerRef}
+              onClick={onToggle}
+              className="text-sm text-foreground font-medium cursor-pointer hover:text-muted-foreground transition-colors"
+            >
               {flag.content}
             </button>
           </div>

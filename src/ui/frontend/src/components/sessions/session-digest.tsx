@@ -8,9 +8,14 @@ interface SessionDigestProps {
   // independent of the session view's per-model filter — see plan's Key
   // Technical Decisions) — used only to look up review status per highlight.
   flags: Flag[];
-  // U5 (a later unit) wires this to scroll/expand/focus the referenced
-  // flag(s); this component only exposes the callback.
+  // Wired by SessionDetail to scroll/expand/focus the referenced flag(s)
+  // and ring any additional matches elsewhere on the page.
   onHighlightClick?: (flagIds: string[]) => void;
+  // Screen-reader-only announcement text, set by SessionDetail after a
+  // multi-flag highlight click rings additional matches (e.g. "2 additional
+  // matching flags highlighted"). Rendered here since this is where the
+  // triggering click happens.
+  announcement?: string;
 }
 
 function isFullyReviewed(flagIds: string[], flagsById: Map<string, Flag>): boolean {
@@ -21,7 +26,7 @@ function isFullyReviewed(flagIds: string[], flagsById: Map<string, Flag>): boole
   });
 }
 
-export function SessionDigest({ sessionId, flags, onHighlightClick }: SessionDigestProps) {
+export function SessionDigest({ sessionId, flags, onHighlightClick, announcement }: SessionDigestProps) {
   const { data, isLoading, error, refetch, isFetching } = useSessionDigest(sessionId);
 
   // First-ever fetch still in flight, no prior data to fall back on — show a
@@ -59,6 +64,8 @@ export function SessionDigest({ sessionId, flags, onHighlightClick }: SessionDig
 
   return (
     <div className="space-y-2 font-mono text-xs">
+      {/* Visually hidden; announces multi-flag ring matches to screen readers */}
+      <div aria-live="polite" className="sr-only">{announcement}</div>
       <h3 className="text-sm font-medium text-foreground">Digest ({data.highlights.length})</h3>
       <div className="rounded border border-border divide-y divide-border">
         {data.highlights.map((highlight, i) => {

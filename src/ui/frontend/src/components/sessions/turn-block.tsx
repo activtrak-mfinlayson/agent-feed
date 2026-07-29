@@ -12,13 +12,31 @@ interface TurnBlockProps {
   sessionId: string;
   onFlagStatusChange: (flagId: string, status: ReviewStatus) => void;
   onSaveNotes: (flagId: string, note: string | null, outcome: string | null) => void;
+  // Expand state lives in SessionDetail (see its comments) so multiple flags
+  // across multiple turns can be independently expanded at once, and so a
+  // digest highlight click can target a specific flag in any turn.
+  expandedFlagIds: Set<string>;
+  onToggleFlag: (flagId: string) => void;
+  // Flags temporarily "ringed" by a just-clicked digest highlight.
+  ringingFlagIds: Set<string>;
+  // Registers/unregisters this flag's interactive DOM element with
+  // SessionDetail so a highlight click can scroll to and focus it.
+  registerFlagRef: (flagId: string, el: HTMLElement | null) => void;
 }
 
-export function TurnBlock({ record, sessionId, onFlagStatusChange, onSaveNotes }: TurnBlockProps) {
+export function TurnBlock({
+  record,
+  sessionId,
+  onFlagStatusChange,
+  onSaveNotes,
+  expandedFlagIds,
+  onToggleFlag,
+  ringingFlagIds,
+  registerFlagRef,
+}: TurnBlockProps) {
   const [rawVisible, setRawVisible] = useState(false);
   const [rawContent, setRawContent] = useState<string | null>(null);
   const [rawLoading, setRawLoading] = useState(false);
-  const [expandedFlagId, setExpandedFlagId] = useState<string | null>(null);
   const [showFullText, setShowFullText] = useState(false);
 
   async function toggleRaw() {
@@ -125,8 +143,10 @@ export function TurnBlock({ record, sessionId, onFlagStatusChange, onSaveNotes }
           <FlagCard
             key={f.id}
             flag={f}
-            expanded={expandedFlagId === f.id}
-            onToggle={() => setExpandedFlagId(expandedFlagId === f.id ? null : f.id)}
+            expanded={expandedFlagIds.has(f.id)}
+            onToggle={() => onToggleFlag(f.id)}
+            ringed={ringingFlagIds.has(f.id)}
+            registerRef={(el) => registerFlagRef(f.id, el)}
             onStatusChange={onFlagStatusChange}
             onSaveNotes={onSaveNotes}
           />

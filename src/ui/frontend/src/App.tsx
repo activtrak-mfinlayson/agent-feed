@@ -52,7 +52,11 @@ export default function App() {
       setView("sessions");
     }} />
   ) : activeSessionId ? (
-    <SessionDetail sessionId={activeSessionId} modelFilter={selectedModel === "all" ? undefined : selectedModel} />
+    <SessionDetail
+      sessionId={activeSessionId}
+      modelFilter={selectedModel === "all" ? undefined : selectedModel}
+      onClearModelFilter={() => setSelectedModel("all")}
+    />
   ) : (
     <EmptyState />
   );
