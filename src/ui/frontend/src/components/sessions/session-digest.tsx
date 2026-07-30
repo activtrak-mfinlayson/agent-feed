@@ -39,7 +39,18 @@ export function SessionDigest({ sessionId, flags, onHighlightClick, announcement
   // A hard transport/HTTP error (e.g. 404/403) with nothing to show yet.
   // Distinct from the server's own defined "unavailable" status below.
   if (error && !data) {
-    return <div className="font-mono text-xs text-red-500 p-4">{(error as Error).message}</div>;
+    return (
+      <div className="flex items-center gap-3 font-mono text-xs text-red-500 p-4">
+        <span>{(error as Error).message}</span>
+        <button
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="text-primary hover:underline disabled:opacity-50 cursor-pointer"
+        >
+          {isFetching ? "retrying..." : "retry"}
+        </button>
+      </div>
+    );
   }
 
   // Below-threshold sessions render exactly as they do today: nothing.

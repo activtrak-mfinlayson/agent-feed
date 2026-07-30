@@ -63,9 +63,10 @@ export class App {
     // via the digest path. `digest.model`, when set, only overrides the
     // model name within that same resolved provider/base_url.
     const digestCfg = this.config.digest ?? {};
+    const resolvedDigestModel = digestCfg.model || classifierCfg.model;
     const digestSynthesizer = this.skipClassifierValidation
       ? null
-      : buildDigestSynthesizer({ ...classifierCfg, model: digestCfg.model || classifierCfg.model });
+      : buildDigestSynthesizer({ ...classifierCfg, model: resolvedDigestModel });
 
     // Build pipeline
     const pipeline = new Pipeline({ db: this._db, classifierFn });
@@ -107,7 +108,7 @@ export class App {
     }
 
     // Start UI server
-    this._uiServer = createUIServer({ db: this._db, digestSynthesizer, digestConfig: digestCfg });
+    this._uiServer = createUIServer({ db: this._db, digestSynthesizer, digestConfig: { ...digestCfg, model: resolvedDigestModel } });
     await this._uiServer.listen(uiCfg.port);
     this.uiPort = this._uiServer.port;
 

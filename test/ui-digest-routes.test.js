@@ -13,9 +13,9 @@ async function buildServer({ digestSynthesizer = null, digestConfig = { enabled:
   return { db, server, port: server.port };
 }
 
-async function seedSession(db, sessionId, flagCount) {
+async function seedSession(db, sessionId, flagCount, timestamp = new Date().toISOString()) {
   const recordId = await db.insertRecord({
-    timestamp: new Date().toISOString(),
+    timestamp,
     agent: 'claude-code',
     session_id: sessionId,
     turn_index: 1,
@@ -215,6 +215,27 @@ describe('GET /api/sessions/:id/digest', () => {
 
       const cached = await db.getSessionDigest('sess-hallucinate');
       assert.equal(cached, null);
+    } finally {
+      await server.close();
+      await db.close();
+    }
+  });
+
+  it('latest_turn_at reflects the max timestamp across multiple records in a session', async () => {
+    const { db, server, port } = await buildServer();
+    try {
+      const olderTimestamp = '2026-01-01T00:00:00.000Z';
+      const newerTimestamp = '2026-01-02T00:00:00.000Z';
+      // Insert the older record first, then the newer one, so the reduce's
+      // multi-record max comparison is actually exercised (every other test
+      // seeds exactly one record per session).
+      await seedSession(db, 'sess-multi-record', 1, olderTimestamp);
+      await seedSession(db, 'sess-multi-record', 1, newerTimestamp);
+
+      const res = await fetch(`http://localhost:${port}/api/sessions/sess-multi-record/digest`);
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.latest_turn_at, newerTimestamp);
     } finally {
       await server.close();
       await db.close();
