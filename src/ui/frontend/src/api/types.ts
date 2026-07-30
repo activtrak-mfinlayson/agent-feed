@@ -112,11 +112,12 @@ export interface DigestHighlight {
 }
 
 export type SessionDigest =
-  | { status: "below_threshold"; latest_turn_at: string }
-  | { status: "unavailable"; latest_turn_at: string }
+  | { status: "below_threshold"; latest_turn_at: string; active_window_minutes: number }
+  | { status: "unavailable"; latest_turn_at: string; active_window_minutes: number }
   | {
       status: "ready";
       highlights: DigestHighlight[];
       generated_at: string;
       latest_turn_at: string;
+      active_window_minutes: number;
     };

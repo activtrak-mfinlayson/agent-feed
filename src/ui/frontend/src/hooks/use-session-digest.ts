@@ -2,19 +2,17 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchSessionDigest } from "@/api/client";
 import type { SessionDigest } from "@/api/types";
 
-// Mirrors the server's default `digest.active_window_minutes` (see
-// docs/plans/2026-07-29-001-feat-session-flag-digest-plan.md, Open Questions).
-// Not read from server config — a client-side constant matching the
-// server's default is acceptable here; tuning both together is deferred.
-const ACTIVE_WINDOW_MINUTES = 10;
-
 // Poll cadence while the session is within the active window.
 const POLL_INTERVAL_MS = 20_000;
 
-function isWithinActiveWindow(latestTurnAt: string): boolean {
-  const latestMs = new Date(latestTurnAt).getTime();
+// The active window is server config (`digest.active_window_minutes`), and
+// every digest response already echoes the value the server is actually
+// using — read it from there instead of maintaining a second hardcoded
+// copy that could silently drift from the server's real setting.
+function isWithinActiveWindow({ latest_turn_at, active_window_minutes }: SessionDigest): boolean {
+  const latestMs = new Date(latest_turn_at).getTime();
   if (Number.isNaN(latestMs)) return false;
-  return Date.now() - latestMs <= ACTIVE_WINDOW_MINUTES * 60_000;
+  return Date.now() - latestMs <= active_window_minutes * 60_000;
 }
 
 export function useSessionDigest(sessionId: string | null) {
@@ -32,7 +30,7 @@ export function useSessionDigest(sessionId: string | null) {
       // can be made yet.
       const data = query.state.data as SessionDigest | undefined;
       if (!data) return false;
-      return isWithinActiveWindow(data.latest_turn_at) ? POLL_INTERVAL_MS : false;
+      return isWithinActiveWindow(data) ? POLL_INTERVAL_MS : false;
     },
   });
 }

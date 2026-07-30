@@ -73,6 +73,14 @@ function summarizeSessionFlags(records) {
   return { latest_turn_at, flagIds, flagsForSynthesis };
 }
 
+// Same-origin policy for routes whose side effects are costly enough to
+// matter if triggered by a cross-site request (currently just the digest
+// route's billed LLM call + DB write). Absent header covers curl/tests/CLI.
+function requireSameOrigin(req) {
+  const secFetchSite = req.headers['sec-fetch-site'];
+  return !secFetchSite || secFetchSite === 'same-origin';
+}
+
 // Drops any highlight whose flag_ids aren't ALL real flags in this session —
 // guards against hallucinated/stale ids from the synthesizer. A highlight
 // with no flag_ids at all references nothing and is dropped too.
@@ -208,9 +216,8 @@ export function createUIServer({ db, digestSynthesizer = null, digestConfig = {}
     if (method === 'GET' && digestMatch) {
       // This is the first GET route whose side effect includes a billed LLM
       // call and a DB write, so it requires same-origin before any other
-      // work — including DB reads — happens. Absent header covers curl/tests/CLI.
-      const secFetchSite = req.headers['sec-fetch-site'];
-      if (secFetchSite && secFetchSite !== 'same-origin') {
+      // work — including DB reads — happens.
+      if (!requireSameOrigin(req)) {
         return json(res, 403, { error: 'Cross-site requests are not allowed for this endpoint' });
       }
 
@@ -219,14 +226,18 @@ export function createUIServer({ db, digestSynthesizer = null, digestConfig = {}
       if (!records.length) return json(res, 404, { error: 'Session not found' });
 
       const { latest_turn_at, flagIds, flagsForSynthesis } = summarizeSessionFlags(records);
+      const active_window_minutes = digestConfig.active_window_minutes ?? 10;
 
       if (!digestEnabled) {
-        return json(res, 200, { status: 'unavailable', latest_turn_at });
+        return json(res, 200, { status: 'unavailable', latest_turn_at, active_window_minutes });
       }
 
-      const liveFlagCount = await db.getFlagCountForSession(sessionId);
+      // flagIds.size is the same "all flags regardless of review_status"
+      // count getRecordsWithFlags already fetched above — no need for a
+      // second DB round trip to recompute it.
+      const liveFlagCount = flagIds.size;
       if (liveFlagCount < flagThreshold) {
-        return json(res, 200, { status: 'below_threshold', latest_turn_at });
+        return json(res, 200, { status: 'below_threshold', latest_turn_at, active_window_minutes });
       }
 
       const cached = await db.getSessionDigest(sessionId);
@@ -236,6 +247,7 @@ export function createUIServer({ db, digestSynthesizer = null, digestConfig = {}
           highlights: cached.content?.highlights ?? [],
           generated_at: cached.generated_at,
           latest_turn_at,
+          active_window_minutes,
         });
       }
 
@@ -244,12 +256,12 @@ export function createUIServer({ db, digestSynthesizer = null, digestConfig = {}
         synthesized = await digestSynthesizer(flagsForSynthesis);
       } catch (err) {
         console.error('[agent-feed] digest synthesis failed:', err.message ?? err);
-        return json(res, 200, { status: 'unavailable', latest_turn_at });
+        return json(res, 200, { status: 'unavailable', latest_turn_at, active_window_minutes });
       }
 
       const highlights = validateHighlights(synthesized?.highlights, flagIds);
       if (!highlights.length) {
-        return json(res, 200, { status: 'unavailable', latest_turn_at });
+        return json(res, 200, { status: 'unavailable', latest_turn_at, active_window_minutes });
       }
 
       const generated_at = new Date().toISOString();
@@ -264,7 +276,7 @@ export function createUIServer({ db, digestSynthesizer = null, digestConfig = {}
         console.error('[agent-feed] failed to save session digest:', err.message ?? err);
       }
 
-      return json(res, 200, { status: 'ready', highlights, generated_at, latest_turn_at });
+      return json(res, 200, { status: 'ready', highlights, generated_at, latest_turn_at, active_window_minutes });
     }
 
     if (method === 'PATCH' && pathname === '/api/flags/bulk') {

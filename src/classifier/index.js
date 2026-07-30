@@ -125,29 +125,31 @@ async function callLLMProvider(config, fetchFn, promptText, userMessage) {
   return data.choices?.[0]?.message?.content ?? '';
 }
 
-function parseClassifierResponse(text) {
+// Shared by both response parsers below: strips markdown code fences (models
+// sometimes wrap JSON in ```json blocks despite being told not to) and parses
+// the result, returning null on any failure so callers apply their own
+// field-specific defaults rather than duplicating this try/catch.
+function parseFencedJson(text) {
   try {
-    const clean = text.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(clean);
-    return {
-      response_summary: parsed.response_summary ?? '',
-      flags: Array.isArray(parsed.flags) ? parsed.flags : [],
-    };
+    return JSON.parse(text.replace(/```json|```/g, '').trim());
   } catch {
-    return { response_summary: '', flags: [] };
+    return null;
   }
 }
 
+function parseClassifierResponse(text) {
+  const parsed = parseFencedJson(text);
+  return {
+    response_summary: parsed?.response_summary ?? '',
+    flags: Array.isArray(parsed?.flags) ? parsed.flags : [],
+  };
+}
+
 function parseDigestResponse(text) {
-  try {
-    const clean = text.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(clean);
-    return {
-      highlights: Array.isArray(parsed.highlights) ? parsed.highlights : [],
-    };
-  } catch {
-    return { highlights: [] };
-  }
+  const parsed = parseFencedJson(text);
+  return {
+    highlights: Array.isArray(parsed?.highlights) ? parsed.highlights : [],
+  };
 }
 
 export function buildClassifier(config, fetchFn = fetch) {

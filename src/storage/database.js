@@ -429,20 +429,6 @@ export class Database {
     ).all();
   }
 
-  // Single-session flag count, counting all flags regardless of review_status
-  // (mirrors the counting convention in getSessionFlagCounts()). Deliberately
-  // scoped to one session — a digest staleness check must not aggregate
-  // across the entire flags table on every poll.
-  async getFlagCountForSession(sessionId) {
-    const row = this.db.prepare(
-      `SELECT COUNT(f.id) as total_flags
-       FROM records r
-       LEFT JOIN flags f ON f.record_id = r.id
-       WHERE r.session_id = ?`
-    ).get(sessionId);
-    return row?.total_flags ?? 0;
-  }
-
   async getSessionDigest(sessionId) {
     const row = this.db.prepare(
       `SELECT * FROM session_digests WHERE session_id = ?`
