@@ -14,6 +14,7 @@ export const defaultConfig = {
     provider: 'anthropic',
     model: 'claude-haiku-4-5-20251001',
     base_url: '',
+    timeout_ms: 30_000, // outbound LLM fetch timeout; classifier call is fire-and-forget so this just bounds worst-case latency
   },
   storage: {
     path: '~/.agent-feed/feed.db',
@@ -29,6 +30,7 @@ export const defaultConfig = {
     flag_threshold: 20,
     active_window_minutes: 10,
     model: '', // empty = use the classifier's resolved model as-is; non-empty overrides only the model name
+    timeout_ms: null, // null = inherit the classifier's timeout_ms; non-null overrides only the digest call's timeout. Matters more here than for the classifier: this call is awaited synchronously by a live HTTP request the UI polls and blocks on.
   },
 };
 

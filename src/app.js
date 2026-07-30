@@ -61,12 +61,15 @@ export class App {
     // classifier config (provider/base_url), so a developer running a
     // local-only classifier isn't silently exposed to a different provider
     // via the digest path. `digest.model`, when set, only overrides the
-    // model name within that same resolved provider/base_url.
+    // model name within that same resolved provider/base_url. Same for
+    // `digest.timeout_ms`, which defaults to null (inherit the classifier's
+    // timeout) but can be set independently.
     const digestCfg = this.config.digest ?? {};
     const resolvedDigestModel = digestCfg.model || classifierCfg.model;
+    const resolvedDigestTimeout = digestCfg.timeout_ms ?? classifierCfg.timeout_ms;
     const digestSynthesizer = this.skipClassifierValidation
       ? null
-      : buildDigestSynthesizer({ ...classifierCfg, model: resolvedDigestModel });
+      : buildDigestSynthesizer({ ...classifierCfg, model: resolvedDigestModel, timeout_ms: resolvedDigestTimeout });
 
     // Build pipeline
     const pipeline = new Pipeline({ db: this._db, classifierFn });
@@ -108,7 +111,7 @@ export class App {
     }
 
     // Start UI server
-    this._uiServer = createUIServer({ db: this._db, digestSynthesizer, digestConfig: { ...digestCfg, model: resolvedDigestModel } });
+    this._uiServer = createUIServer({ db: this._db, digestSynthesizer, digestConfig: { ...digestCfg, model: resolvedDigestModel, timeout_ms: resolvedDigestTimeout } });
     await this._uiServer.listen(uiCfg.port);
     this.uiPort = this._uiServer.port;
 

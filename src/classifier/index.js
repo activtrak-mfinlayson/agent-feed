@@ -82,12 +82,17 @@ function buildOpenAICompatibleBody(model, promptText, userMessage) {
  * request, sends it, and extracts the raw text of the model's reply.
  *
  * Returns the response text on success, or `null` if the upstream request
- * failed (non-ok HTTP status) -- callers are responsible for turning `null`
- * into their own empty/failure result shape, since that shape differs
- * between the classifier and the digest synthesizer.
+ * failed (non-ok HTTP status, network error, or timeout) -- callers are
+ * responsible for turning `null` into their own empty/failure result shape,
+ * since that shape differs between the classifier and the digest synthesizer.
+ *
+ * `config.timeout_ms` (falsy = no timeout) bounds how long the fetch is
+ * allowed to hang before it's aborted and treated as a failure. This matters
+ * most for the digest synthesizer, which -- unlike the fire-and-forget
+ * classifier -- is awaited synchronously inside a live HTTP request.
  */
 async function callLLMProvider(config, fetchFn, promptText, userMessage) {
-  const { provider, model, base_url } = config;
+  const { provider, model, base_url, timeout_ms } = config;
 
   let url;
   let body;
@@ -106,11 +111,25 @@ async function callLLMProvider(config, fetchFn, promptText, userMessage) {
     body = buildOpenAICompatibleBody(model, promptText, userMessage);
   }
 
-  const response = await fetchFn(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const timer = timeout_ms ? setTimeout(() => controller.abort(), timeout_ms) : null;
+
+  let response;
+  try {
+    response = await fetchFn(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch {
+    // Covers both abort-on-timeout and ordinary network failures -- both are
+    // treated the same as a non-ok response so callers' null-handling is
+    // unchanged and no unhandled rejection escapes this call.
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 
   if (!response.ok) {
     return null;

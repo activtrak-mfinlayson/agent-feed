@@ -120,6 +120,27 @@ describe('buildDigestSynthesizer', () => {
     assert.deepEqual(result, { highlights: [] });
   });
 
+  it('returns empty highlights (not an unhandled rejection) when the fetch hangs past timeout_ms', async () => {
+    // A hung local endpoint (e.g. ollama/lmstudio) is exactly the failure
+    // mode this timeout exists for: the digest route awaits this call
+    // synchronously inside a live HTTP request the UI polls and blocks on.
+    const hangingFetch = (url, { signal } = {}) => new Promise((resolve, reject) => {
+      signal?.addEventListener('abort', () => {
+        const err = new Error('The operation was aborted');
+        err.name = 'AbortError';
+        reject(err);
+      });
+    });
+
+    const synthesizer = buildDigestSynthesizer(
+      { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '', timeout_ms: 50 },
+      hangingFetch,
+    );
+
+    const result = await synthesizer(MOCK_FLAGS);
+    assert.deepEqual(result, { highlights: [] });
+  });
+
   it('returns empty highlights when the provider returns malformed/non-JSON text', async () => {
     const mockFetch = async () => ({
       ok: true,
