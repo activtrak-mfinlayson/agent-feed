@@ -429,6 +429,21 @@ export class Database {
     ).all();
   }
 
+  // Lightweight companion to getRecordsWithFlags for the digest route's
+  // disabled/below-threshold/cache-check paths, which only ever need the live
+  // flag count and the session's latest turn timestamp — not every record's
+  // full row content or every flag row. A null latest_turn_at means the
+  // session has no records at all (used by callers to distinguish "no
+  // session" from "session with zero flags").
+  async getSessionFlagSummary(sessionId) {
+    const row = this.db.prepare(
+      `SELECT COUNT(f.id) as total_flags, MAX(r.timestamp) as latest_turn_at
+       FROM records r LEFT JOIN flags f ON f.record_id = r.id
+       WHERE r.session_id = ?`
+    ).get(sessionId);
+    return { total_flags: row?.total_flags ?? 0, latest_turn_at: row?.latest_turn_at ?? null };
+  }
+
   async getSessionDigest(sessionId) {
     const row = this.db.prepare(
       `SELECT * FROM session_digests WHERE session_id = ?`

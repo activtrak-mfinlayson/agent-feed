@@ -53,15 +53,12 @@ function serveStatic(res, filePath) {
 }
 
 // Reduces a session's flags (already attached to records via getRecordsWithFlags)
-// down to the shape the digest synthesizer expects, and computes the two
-// values every digest response needs regardless of outcome: the session's
-// live latest-turn timestamp and the flat set of real flag ids (for
-// server-side validation of whatever the synthesizer returns).
+// down to the shape the digest synthesizer expects: the flat set of real flag
+// ids (for server-side validation of whatever the synthesizer returns) and
+// the trimmed flag payload actually sent to the synthesizer. Only needed when
+// synthesis is actually about to run — latest_turn_at and the live flag count
+// come from the cheaper db.getSessionFlagSummary() query for every other path.
 function summarizeSessionFlags(records) {
-  const latest_turn_at = records.reduce(
-    (max, r) => (r.timestamp && (!max || r.timestamp > max) ? r.timestamp : max),
-    null,
-  );
   const flags = records.flatMap(r => r.flags ?? []);
   const flagIds = new Set(flags.map(f => f.id));
   const flagsForSynthesis = flags.map(f => ({
@@ -70,7 +67,7 @@ function summarizeSessionFlags(records) {
     content: f.content,
     confidence: f.confidence,
   }));
-  return { latest_turn_at, flagIds, flagsForSynthesis };
+  return { flagIds, flagsForSynthesis };
 }
 
 // Same-origin policy for routes whose side effects are costly enough to
@@ -102,6 +99,14 @@ export function createUIServer({ db, digestSynthesizer = null, digestConfig = {}
   // rather than a crash on first digest request.
   const digestEnabled = digestConfig.enabled !== false && typeof digestSynthesizer === 'function';
   const flagThreshold = digestConfig.flag_threshold ?? 20;
+
+  // Per-session "recently failed" marker for the digest route (fix for
+  // unbounded retry-every-poll on a down/erroring synthesizer). Session-
+  // scoped and in-memory only — no new DB table needed, and it's fine for
+  // this to reset on daemon restart. Cleared on the next successful
+  // generation for that session.
+  const digestRecentFailures = new Map();
+  const DIGEST_FAILURE_COOLDOWN_MS = 60_000;
 
   async function handleRequest(req, res) {
     const url = new URL(req.url, `http://localhost`);
@@ -222,20 +227,26 @@ export function createUIServer({ db, digestSynthesizer = null, digestConfig = {}
       }
 
       const sessionId = decodeURIComponent(digestMatch[1]);
-      const records = await db.getRecordsWithFlags(sessionId);
-      if (!records.length) return json(res, 404, { error: 'Session not found' });
-
-      const { latest_turn_at, flagIds, flagsForSynthesis } = summarizeSessionFlags(records);
       const active_window_minutes = digestConfig.active_window_minutes ?? 10;
 
+      // Cheap query first: just the live flag count and latest turn
+      // timestamp, not every record's full row content or every flag row.
+      // Covers the 404 check, the disabled/below-threshold self-hide paths,
+      // and the cache-hit path — the common case on a ~20s poll loop. The
+      // full getRecordsWithFlags() fetch only happens below if synthesis is
+      // actually about to run.
+      const { total_flags: liveFlagCount, latest_turn_at } = await db.getSessionFlagSummary(sessionId);
+      if (latest_turn_at == null) return json(res, 404, { error: 'Session not found' });
+
+      // Disabled digest self-hides exactly like a below-threshold session —
+      // same response shape the frontend already treats as "render nothing" —
+      // rather than the distinct "unavailable" shape, which renders a
+      // permanent broken-looking retry box that can never succeed while the
+      // feature is off.
       if (!digestEnabled) {
-        return json(res, 200, { status: 'unavailable', latest_turn_at, active_window_minutes });
+        return json(res, 200, { status: 'below_threshold', latest_turn_at, active_window_minutes });
       }
 
-      // flagIds.size is the same "all flags regardless of review_status"
-      // count getRecordsWithFlags already fetched above — no need for a
-      // second DB round trip to recompute it.
-      const liveFlagCount = flagIds.size;
       if (liveFlagCount < flagThreshold) {
         return json(res, 200, { status: 'below_threshold', latest_turn_at, active_window_minutes });
       }
@@ -251,18 +262,36 @@ export function createUIServer({ db, digestSynthesizer = null, digestConfig = {}
         });
       }
 
+      // Cache miss or flag-count mismatch, above threshold, enabled — this is
+      // the path that would invoke the (billed) synthesizer. If this session
+      // failed recently, skip re-invoking it on every ~20s poll and return
+      // the unavailable shape directly instead.
+      const lastFailureAt = digestRecentFailures.get(sessionId);
+      if (lastFailureAt != null && Date.now() - lastFailureAt < DIGEST_FAILURE_COOLDOWN_MS) {
+        return json(res, 200, { status: 'unavailable', latest_turn_at, active_window_minutes });
+      }
+
+      // Synthesis is actually about to run — now (and only now) do we need
+      // full record+flag rows, for flagsForSynthesis and flag-id validation.
+      const records = await db.getRecordsWithFlags(sessionId);
+      const { flagIds, flagsForSynthesis } = summarizeSessionFlags(records);
+
       let synthesized;
       try {
         synthesized = await digestSynthesizer(flagsForSynthesis);
       } catch (err) {
         console.error('[agent-feed] digest synthesis failed:', err.message ?? err);
+        digestRecentFailures.set(sessionId, Date.now());
         return json(res, 200, { status: 'unavailable', latest_turn_at, active_window_minutes });
       }
 
       const highlights = validateHighlights(synthesized?.highlights, flagIds);
       if (!highlights.length) {
+        digestRecentFailures.set(sessionId, Date.now());
         return json(res, 200, { status: 'unavailable', latest_turn_at, active_window_minutes });
       }
+
+      digestRecentFailures.delete(sessionId);
 
       const generated_at = new Date().toISOString();
       try {
