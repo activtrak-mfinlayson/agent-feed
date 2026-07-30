@@ -297,7 +297,7 @@ export function createUIServer({ db, digestSynthesizer = null, digestConfig = {}
       try {
         await db.saveSessionDigest(sessionId, {
           generated_at,
-          flag_count_at_generation: liveFlagCount,
+          flag_count_at_generation: flagIds.size,
           content: { highlights },
           model: digestConfig.model || null,
         });

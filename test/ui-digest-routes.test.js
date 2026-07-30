@@ -435,6 +435,87 @@ describe('GET /api/sessions/:id/digest', () => {
     }
   });
 
+  it('clears the failure cooldown on success (digestRecentFailures.delete), then establishes a fresh cooldown on a later failure', async (t) => {
+    // Uses node:test's built-in Date mock so we can advance past
+    // DIGEST_FAILURE_COOLDOWN_MS (60000ms) between a failing first request
+    // and a succeeding second request, without a real 60-second sleep.
+    t.mock.timers.enable({ apis: ['Date'] });
+
+    // The cooldown map itself isn't exposed by createUIServer, and — because
+    // every path that reaches `.set()`/`.delete()` has already passed the
+    // "is there a live, unexpired entry?" gate — a stale-but-expired entry
+    // left behind by a missing `.delete()` call is indistinguishable from no
+    // entry at all for any *future* request's pass/block outcome (an old
+    // failure timestamp only ever gets staler; only a later failure's
+    // `.set()` can make the gate block again, and that unconditionally
+    // overwrites regardless of whether the prior success deleted the old
+    // entry). So a response-only assertion sequence can't actually catch a
+    // missing `digestRecentFailures.delete(sessionId)` call — we spy on
+    // Map.prototype.delete, scoped to this test's unique session id, to
+    // directly confirm the line executes for the right key.
+    const deleteCallsForSession = [];
+    const originalMapDelete = Map.prototype.delete;
+    Map.prototype.delete = function (key) {
+      if (key === 'sess-cooldown-clear') deleteCallsForSession.push(key);
+      return originalMapDelete.call(this, key);
+    };
+
+    let calls = 0;
+    const { db, server, port } = await buildServer({
+      digestSynthesizer: async (flags) => {
+        calls++;
+        // Fails on the 1st and 3rd calls, succeeds on the 2nd.
+        if (calls === 1 || calls === 3) throw new Error('provider is down');
+        return { highlights: [{ summary: 'Recovered highlight', flag_ids: [flags[0].id] }] };
+      },
+    });
+
+    try {
+      await seedSession(db, 'sess-cooldown-clear', FLAG_THRESHOLD);
+
+      // First request fails and starts a cooldown.
+      const res1 = await fetch(`http://localhost:${port}/api/sessions/sess-cooldown-clear/digest`);
+      assert.equal((await res1.json()).status, 'unavailable');
+      assert.equal(calls, 1);
+      assert.equal(deleteCallsForSession.length, 0, 'no delete on a failed generation');
+
+      // Advance the clock past the cooldown window.
+      t.mock.timers.tick(60_001);
+
+      // Second request is no longer blocked by the cooldown and reaches the
+      // synthesizer, which succeeds this time.
+      const res2 = await fetch(`http://localhost:${port}/api/sessions/sess-cooldown-clear/digest`);
+      const body2 = await res2.json();
+      assert.equal(body2.status, 'ready');
+      assert.equal(calls, 2, 'synthesizer should be invoked once the cooldown has expired');
+      assert.equal(deleteCallsForSession.length, 1, 'success must call digestRecentFailures.delete(sessionId) for this session');
+
+      // Add a flag so the live flag count no longer matches the digest we
+      // just cached — this forces the next request to re-evaluate instead
+      // of being served straight from cache, so it actually reaches the
+      // synthesizer (and cooldown check) again.
+      const recordId = (await db.getSession('sess-cooldown-clear'))[0].id;
+      await db.insertFlag({ record_id: recordId, type: 'risk', content: 'Another risk', confidence: 0.9 });
+
+      // Third request fails again, starting a brand new cooldown.
+      const res3 = await fetch(`http://localhost:${port}/api/sessions/sess-cooldown-clear/digest`);
+      assert.equal((await res3.json()).status, 'unavailable');
+      assert.equal(calls, 3);
+
+      // Immediately poll again (no time advance) — the fresh cooldown from
+      // the third call's failure must block this without invoking the
+      // synthesizer a fourth time.
+      const res4 = await fetch(`http://localhost:${port}/api/sessions/sess-cooldown-clear/digest`);
+      assert.equal((await res4.json()).status, 'unavailable');
+      assert.equal(calls, 3, 'the fresh cooldown from the third failure should block immediate re-invocation');
+    } finally {
+      Map.prototype.delete = originalMapDelete;
+      t.mock.timers.reset();
+      await server.close();
+      await db.close();
+    }
+  });
+
   it('integration: seeds real flags via insertFlag past threshold and round-trips through real storage methods', async () => {
     const db = new Database(':memory:');
     await db.init();

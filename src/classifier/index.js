@@ -253,6 +253,7 @@ export async function validateClassifierWithFallback(config, fetchFn = fetch) {
       provider: 'anthropic',
       model: 'claude-haiku-4-5-20251001',
       base_url: '',
+      timeout_ms: 30_000,
     };
     const result = await validateClassifier(anthropicConfig, fetchFn);
     if (result.ok) {
