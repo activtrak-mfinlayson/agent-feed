@@ -36,7 +36,12 @@ function buildAnthropicBody(model, content) {
   return {
     model,
     max_tokens: 1000,
-    messages: [{ role: 'user', content: `${CLASSIFICATION_PROMPT}\n\nAgent response to analyze:\n\n${content}` }],
+    messages: [
+      {
+        role: 'user',
+        content: `${CLASSIFICATION_PROMPT}\n\nAgent response to analyze:\n\n${content}`,
+      },
+    ],
   };
 }
 
@@ -100,7 +105,7 @@ export function buildClassifier(config, fetchFn = fetch) {
     // Handle both Anthropic and OpenAI response shapes
     let text = '';
     if (provider === 'anthropic') {
-      text = data.content?.find(b => b.type === 'text')?.text ?? '';
+      text = data.content?.find((b) => b.type === 'text')?.text ?? '';
     } else {
       text = data.choices?.[0]?.message?.content ?? '';
     }
@@ -110,8 +115,8 @@ export function buildClassifier(config, fetchFn = fetch) {
 }
 
 const FALLBACK_PROVIDERS = [
-  { provider: 'ollama',    base_url: 'http://localhost:11434', model: 'llama3.1' },
-  { provider: 'lmstudio', base_url: 'http://localhost:1234',  model: 'local-model' },
+  { provider: 'ollama', base_url: 'http://localhost:11434', model: 'llama3.1' },
+  { provider: 'lmstudio', base_url: 'http://localhost:1234', model: 'local-model' },
 ];
 
 export async function validateClassifierWithFallback(config, fetchFn = fetch) {
@@ -120,7 +125,12 @@ export async function validateClassifierWithFallback(config, fetchFn = fetch) {
   // 1. Try configured provider first
   const primary = await validateClassifier(config, fetchFn);
   if (primary.ok) {
-    return { ...primary, provider: config.provider, base_url: config.base_url, effectiveConfig: config };
+    return {
+      ...primary,
+      provider: config.provider,
+      base_url: config.base_url,
+      effectiveConfig: config,
+    };
   }
   tried.push({ provider: config.provider, reason: primary.reason });
 
@@ -162,13 +172,12 @@ export async function validateClassifierWithFallback(config, fetchFn = fetch) {
   }
 
   // All failed
-  const summary = tried.map(t => `${t.provider}: ${t.reason}`).join('; ');
+  const summary = tried.map((t) => `${t.provider}: ${t.reason}`).join('; ');
   return {
     ok: false,
     reason: `No classifier available. Tried: ${summary}`,
   };
 }
-
 
 export async function validateClassifier(config, fetchFn = fetch) {
   const { provider, model, base_url } = config;
@@ -182,9 +191,7 @@ export async function validateClassifier(config, fetchFn = fetch) {
 
   // For local providers, ping the models endpoint
   try {
-    const url = provider === 'ollama'
-      ? `${base_url}/api/tags`
-      : `${base_url}/v1/models`;
+    const url = provider === 'ollama' ? `${base_url}/api/tags` : `${base_url}/v1/models`;
 
     const res = await fetchFn(url);
     if (!res.ok) {

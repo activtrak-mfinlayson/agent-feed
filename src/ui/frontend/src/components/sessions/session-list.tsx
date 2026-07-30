@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Input } from "@/components/ui/input";
-import { formatDate, cn } from "@/lib/utils";
 import type { Session } from "@/api/types";
+import { Input } from "@/components/ui/input";
+import { cn, formatDate } from "@/lib/utils";
 
 interface SessionListProps {
   sessions: Session[];
@@ -71,9 +71,7 @@ export function SessionList({
               onClick={() => onSelectSession(s.session_id)}
               className={cn(
                 "w-full text-left px-3 py-2 transition-colors cursor-pointer border-b border-border/50",
-                s.session_id === activeSessionId
-                  ? "bg-accent"
-                  : "hover:bg-accent/40",
+                s.session_id === activeSessionId ? "bg-accent" : "hover:bg-accent/40",
               )}
             >
               <div className="flex items-center justify-between gap-1">

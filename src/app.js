@@ -1,13 +1,14 @@
-import path from 'node:path';
-import os from 'node:os';
 import fs from 'node:fs';
-import { Proxy } from './proxy/index.js';
-import { Database } from './storage/database.js';
-import { Pipeline } from './pipeline.js';
+import os from 'node:os';
+import path from 'node:path';
 import { buildClassifier, validateClassifierWithFallback } from './classifier/index.js';
-import { createUIServer } from './ui/server.js';
 import { OtelReceiver } from './otel/receiver.js';
 import { OtelSink } from './otel/sink.js';
+import { Pipeline } from './pipeline.js';
+// biome-ignore lint/suspicious/noShadowRestrictedNames: importing the proxy server class, not the global.
+import { Proxy } from './proxy/index.js';
+import { Database } from './storage/database.js';
+import { createUIServer } from './ui/server.js';
 
 function resolvePath(p) {
   if (p.startsWith('~')) {
@@ -53,9 +54,7 @@ export class App {
     this._dbPath = dbPath;
 
     // Build classifier function
-    const classifierFn = this.skipClassifierValidation
-      ? null
-      : buildClassifier(classifierCfg);
+    const classifierFn = this.skipClassifierValidation ? null : buildClassifier(classifierCfg);
 
     // Build pipeline
     const pipeline = new Pipeline({ db: this._db, classifierFn });
@@ -91,7 +90,9 @@ export class App {
         this.otelPort = this._otelReceiver.server.address().port;
       } catch (err) {
         // Don't fail the daemon if the OTel port is taken — proxy is canonical.
-        console.warn(`[agent-feed] OTel receiver failed to start on :${otelCfg.port ?? 4318}: ${err.message}`);
+        console.warn(
+          `[agent-feed] OTel receiver failed to start on :${otelCfg.port ?? 4318}: ${err.message}`,
+        );
         this._otelReceiver = null;
       }
     }
@@ -122,7 +123,9 @@ export class App {
       if (this._dbPath && fs.existsSync(this._dbPath)) {
         dbSizeBytes = fs.statSync(this._dbPath).size;
       }
-    } catch { /* stat may fail if file was just deleted — return 0 */ }
+    } catch {
+      /* stat may fail if file was just deleted — return 0 */
+    }
     return {
       proxyPort: this.proxyPort,
       uiPort: this.uiPort,

@@ -16,7 +16,17 @@ const server = http.createServer((req, res) => {
     });
 
     const events = [
-      { type: 'message_start', message: { id: 'msg_test', type: 'message', role: 'assistant', model: 'claude-haiku-4-5-20251001', content: [], usage: { input_tokens: 10, output_tokens: 0 } } },
+      {
+        type: 'message_start',
+        message: {
+          id: 'msg_test',
+          type: 'message',
+          role: 'assistant',
+          model: 'claude-haiku-4-5-20251001',
+          content: [],
+          usage: { input_tokens: 10, output_tokens: 0 },
+        },
+      },
       { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
       { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'hi' } },
       { type: 'content_block_stop', index: 0 },
@@ -25,7 +35,7 @@ const server = http.createServer((req, res) => {
     ];
 
     for (const event of events) {
-      res.write('event: ' + event.type + '\ndata: ' + JSON.stringify(event) + '\n\n');
+      res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
     }
     res.end();
   });

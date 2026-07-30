@@ -1,8 +1,8 @@
-import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { after, before, describe, it } from 'node:test';
 import BetterSqlite3 from 'better-sqlite3';
 import { Database } from '../src/storage/database.js';
 
@@ -44,11 +44,13 @@ describe('Database OTel additions', () => {
     });
 
     it('persists otel source and request_id', async () => {
-      const id = await db.insertRecord(baseRecord({
-        session_id: 's-otel',
-        source: 'otel',
-        request_id: 'req_abc',
-      }));
+      const id = await db.insertRecord(
+        baseRecord({
+          session_id: 's-otel',
+          source: 'otel',
+          request_id: 'req_abc',
+        }),
+      );
       const row = db.db.prepare('SELECT source, request_id FROM records WHERE id = ?').get(id);
       assert.equal(row.source, 'otel');
       assert.equal(row.request_id, 'req_abc');
@@ -85,14 +87,22 @@ describe('Database OTel additions', () => {
 
     it('is idempotent on duplicate id (INSERT OR IGNORE)', async () => {
       await db.insertEvent({
-        id: 'evt-dup', timestamp: 'x', agent: 'claude',
-        session_id: 's', event_kind: 'hook', event_name: 'claude_code.hook_execution_start',
+        id: 'evt-dup',
+        timestamp: 'x',
+        agent: 'claude',
+        session_id: 's',
+        event_kind: 'hook',
+        event_name: 'claude_code.hook_execution_start',
         attributes: {},
       });
       // Insert again with different attributes — first wins
       await db.insertEvent({
-        id: 'evt-dup', timestamp: 'y', agent: 'claude',
-        session_id: 's', event_kind: 'hook', event_name: 'claude_code.hook_execution_start',
+        id: 'evt-dup',
+        timestamp: 'y',
+        agent: 'claude',
+        session_id: 's',
+        event_kind: 'hook',
+        event_name: 'claude_code.hook_execution_start',
         attributes: { changed: true },
       });
       const rows = db.db.prepare('SELECT * FROM events WHERE id = ?').all('evt-dup');
@@ -102,7 +112,15 @@ describe('Database OTel additions', () => {
 
     it('throws when id is missing', async () => {
       await assert.rejects(
-        () => db.insertEvent({ timestamp: 'x', agent: 'claude', session_id: 's', event_kind: 'k', event_name: 'n', attributes: {} }),
+        () =>
+          db.insertEvent({
+            timestamp: 'x',
+            agent: 'claude',
+            session_id: 's',
+            event_kind: 'k',
+            event_name: 'n',
+            attributes: {},
+          }),
         /requires deterministic id/,
       );
     });
@@ -118,9 +136,14 @@ describe('Database OTel additions', () => {
       ];
       for (const s of seed) {
         await db.insertEvent({
-          id: s.id, timestamp: 't', agent: 'claude', session_id: 'sess-q',
-          prompt_id: s.prompt_id, event_kind: s.event_kind,
-          event_name: `claude_code.${s.event_kind}`, sequence: s.sequence,
+          id: s.id,
+          timestamp: 't',
+          agent: 'claude',
+          session_id: 'sess-q',
+          prompt_id: s.prompt_id,
+          event_kind: s.event_kind,
+          event_name: `claude_code.${s.event_kind}`,
+          sequence: s.sequence,
           attributes: {},
         });
       }
@@ -129,7 +152,10 @@ describe('Database OTel additions', () => {
     it('returns all events ordered by sequence', async () => {
       const rows = await db.getEventsForSession('sess-q');
       assert.equal(rows.length, 4);
-      assert.deepEqual(rows.map(r => r.sequence), [1, 2, 3, 4]);
+      assert.deepEqual(
+        rows.map((r) => r.sequence),
+        [1, 2, 3, 4],
+      );
     });
 
     it('filters by kind', async () => {
@@ -146,29 +172,42 @@ describe('Database OTel additions', () => {
 
   describe('getRecordsCoalesced', () => {
     it('merges proxy and otel rows that share request_id', async () => {
-      await db.insertRecord(baseRecord({
-        session_id: 'co-1', turn_index: 1,
-        source: 'proxy', request_id: 'r1',
-        raw_response: 'PROXY-BODY', token_count: null,
-      }));
-      await db.insertRecord(baseRecord({
-        session_id: 'co-1', turn_index: 1,
-        source: 'otel', request_id: 'r1',
-        raw_response: 'OTEL-BODY', token_count: 42,
-      }));
+      await db.insertRecord(
+        baseRecord({
+          session_id: 'co-1',
+          turn_index: 1,
+          source: 'proxy',
+          request_id: 'r1',
+          raw_response: 'PROXY-BODY',
+          token_count: null,
+        }),
+      );
+      await db.insertRecord(
+        baseRecord({
+          session_id: 'co-1',
+          turn_index: 1,
+          source: 'otel',
+          request_id: 'r1',
+          raw_response: 'OTEL-BODY',
+          token_count: 42,
+        }),
+      );
       const rows = await db.getRecordsCoalesced('co-1');
       assert.equal(rows.length, 1);
       const row = rows[0];
       assert.equal(row.source, 'proxy+otel');
       assert.equal(row.raw_response, 'PROXY-BODY'); // proxy preferred (untruncated)
-      assert.equal(row.token_count, 42);            // otel filled in
+      assert.equal(row.token_count, 42); // otel filled in
     });
 
     it('keeps standalone rows (no request_id) intact', async () => {
-      await db.insertRecord(baseRecord({
-        session_id: 'co-2', turn_index: 1,
-        raw_response: 'LEGACY',
-      }));
+      await db.insertRecord(
+        baseRecord({
+          session_id: 'co-2',
+          turn_index: 1,
+          raw_response: 'LEGACY',
+        }),
+      );
       const rows = await db.getRecordsCoalesced('co-2');
       assert.equal(rows.length, 1);
       assert.equal(rows[0].source, 'proxy');
@@ -176,25 +215,42 @@ describe('Database OTel additions', () => {
     });
 
     it('keeps single-source rows when only one source captured', async () => {
-      await db.insertRecord(baseRecord({
-        session_id: 'co-3', source: 'otel', request_id: 'r3',
-      }));
+      await db.insertRecord(
+        baseRecord({
+          session_id: 'co-3',
+          source: 'otel',
+          request_id: 'r3',
+        }),
+      );
       const rows = await db.getRecordsCoalesced('co-3');
       assert.equal(rows.length, 1);
       assert.equal(rows[0].source, 'otel');
     });
 
     it('orders by turn_index then timestamp', async () => {
-      await db.insertRecord(baseRecord({
-        session_id: 'co-4', turn_index: 2, timestamp: '2026-04-29T00:00:02Z',
-        source: 'proxy', request_id: 'r4b',
-      }));
-      await db.insertRecord(baseRecord({
-        session_id: 'co-4', turn_index: 1, timestamp: '2026-04-29T00:00:01Z',
-        source: 'proxy', request_id: 'r4a',
-      }));
+      await db.insertRecord(
+        baseRecord({
+          session_id: 'co-4',
+          turn_index: 2,
+          timestamp: '2026-04-29T00:00:02Z',
+          source: 'proxy',
+          request_id: 'r4b',
+        }),
+      );
+      await db.insertRecord(
+        baseRecord({
+          session_id: 'co-4',
+          turn_index: 1,
+          timestamp: '2026-04-29T00:00:01Z',
+          source: 'proxy',
+          request_id: 'r4a',
+        }),
+      );
       const rows = await db.getRecordsCoalesced('co-4');
-      assert.deepEqual(rows.map(r => r.turn_index), [1, 2]);
+      assert.deepEqual(
+        rows.map((r) => r.turn_index),
+        [1, 2],
+      );
     });
   });
 
@@ -216,7 +272,7 @@ describe('Database OTel additions', () => {
       // Run init twice; second call must not throw on duplicate columns/indexes
       await db.init();
       await db.init();
-      const cols = db.db.pragma('table_info(records)').map(c => c.name);
+      const cols = db.db.pragma('table_info(records)').map((c) => c.name);
       assert.ok(cols.includes('source'));
       assert.ok(cols.includes('request_id'));
     });
@@ -268,15 +324,17 @@ describe('Database OTel additions', () => {
         oldDb.close();
 
         await legacyDb.init();
-        const cols = legacyDb.db.pragma('table_info(records)').map(c => c.name);
+        const cols = legacyDb.db.pragma('table_info(records)').map((c) => c.name);
         assert.ok(cols.includes('response_text'));
         assert.ok(cols.includes('source'));
         assert.ok(cols.includes('request_id'));
 
-        const indexes = legacyDb.db.pragma('index_list(records)').map(i => i.name);
+        const indexes = legacyDb.db.pragma('index_list(records)').map((i) => i.name);
         assert.ok(indexes.includes('idx_records_session_request'));
 
-        const row = legacyDb.db.prepare('SELECT id, source, request_id FROM records WHERE id = ?').get('legacy-record');
+        const row = legacyDb.db
+          .prepare('SELECT id, source, request_id FROM records WHERE id = ?')
+          .get('legacy-record');
         assert.deepEqual(row, {
           id: 'legacy-record',
           source: 'proxy',

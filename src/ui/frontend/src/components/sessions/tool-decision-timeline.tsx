@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchToolDecisions } from "@/api/client";
-import { asStringOrNull, asNumOrNull } from "@/lib/utils";
 import type { OtelEvent } from "@/api/types";
+import { asNumOrNull, asStringOrNull } from "@/lib/utils";
 
 interface ToolDecisionTimelineProps {
   sessionId: string;
@@ -26,7 +26,7 @@ function pairUp(decisions: OtelEvent[], results: OtelEvent[]): DecisionRow[] {
     if (tuid) resultByTuid.set(tuid, r);
     const tn = asStringOrNull(r.attributes.tool_name) ?? "";
     if (!resultsByTool.has(tn)) resultsByTool.set(tn, []);
-    resultsByTool.get(tn)!.push(r);
+    resultsByTool.get(tn)?.push(r);
   }
 
   return decisions.map((d) => {
@@ -62,8 +62,12 @@ export function ToolDecisionTimeline({ sessionId }: ToolDecisionTimelineProps) {
     queryFn: () => fetchToolDecisions(sessionId),
   });
 
-  if (isLoading) return <div className="font-mono text-xs text-muted-foreground p-4">loading tool timeline...</div>;
-  if (error) return <div className="font-mono text-xs text-red-500 p-4">{(error as Error).message}</div>;
+  if (isLoading)
+    return (
+      <div className="font-mono text-xs text-muted-foreground p-4">loading tool timeline...</div>
+    );
+  if (error)
+    return <div className="font-mono text-xs text-red-500 p-4">{(error as Error).message}</div>;
   if (!data || (data.decisions.length === 0 && data.results.length === 0)) return null;
 
   const rows = pairUp(data.decisions, data.results);
@@ -73,7 +77,7 @@ export function ToolDecisionTimeline({ sessionId }: ToolDecisionTimelineProps) {
   for (const r of rows) {
     const key = r.promptId ?? "(no prompt)";
     if (!byPrompt.has(key)) byPrompt.set(key, []);
-    byPrompt.get(key)!.push(r);
+    byPrompt.get(key)?.push(r);
   }
 
   return (

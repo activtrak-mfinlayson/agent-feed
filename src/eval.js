@@ -4,13 +4,17 @@ function extractTextContent(rawResponse) {
   try {
     const parsed = JSON.parse(rawResponse);
     if (parsed.content) {
-      return parsed.content
-        .filter(b => b.type === 'text')
-        .map(b => b.text)
-        .join('\n') || rawResponse;
+      return (
+        parsed.content
+          .filter((b) => b.type === 'text')
+          .map((b) => b.text)
+          .join('\n') || rawResponse
+      );
     }
     if (typeof parsed === 'string') return parsed;
-  } catch { /* not JSON — use as-is */ }
+  } catch {
+    /* not JSON — use as-is */
+  }
   return rawResponse;
 }
 
@@ -61,7 +65,11 @@ function contentForSample(sample) {
 // and check whether it would have produced the same flag type.
 // accepted + needs_change = true positives (classifier should find them)
 // false_positive = true negatives (classifier should NOT find them)
-export async function runClassifierEval({ db, classifierFn, minSamples = MIN_SAMPLES_DEFAULT } = {}) {
+export async function runClassifierEval({
+  db,
+  classifierFn,
+  minSamples = MIN_SAMPLES_DEFAULT,
+} = {}) {
   // Collect all reviewed flags with their parent raw response
   const samples = await collectLabeledSamples(db);
 
@@ -87,7 +95,7 @@ export async function runClassifierEval({ db, classifierFn, minSamples = MIN_SAM
       console.warn('[eval] classifier failed for sample:', err.message ?? err);
     }
 
-    const predicted = classifierFlags.some(f => f.type === sample.type);
+    const predicted = classifierFlags.some((f) => f.type === sample.type);
     const isPositive = sample.review_status !== 'false_positive';
 
     results.push({ type: sample.type, predicted, isPositive });
@@ -99,7 +107,7 @@ export async function runClassifierEval({ db, classifierFn, minSamples = MIN_SAM
     if (!typeMap[r.type]) typeMap[r.type] = { tp: 0, fp: 0, fn: 0, tn: 0, total: 0 };
     const m = typeMap[r.type];
     m.total++;
-    if (r.isPositive && r.predicted)  m.tp++;
+    if (r.isPositive && r.predicted) m.tp++;
     if (!r.isPositive && r.predicted) m.fp++;
     if (r.isPositive && !r.predicted) m.fn++;
     if (!r.isPositive && !r.predicted) m.tn++;
@@ -107,31 +115,33 @@ export async function runClassifierEval({ db, classifierFn, minSamples = MIN_SAM
 
   const metrics = (tp, fp, fn) => {
     const precision = tp + fp > 0 ? tp / (tp + fp) : 0;
-    const recall    = tp + fn > 0 ? tp / (tp + fn) : 0;
-    const f1        = precision + recall > 0 ? 2 * precision * recall / (precision + recall) : 0;
+    const recall = tp + fn > 0 ? tp / (tp + fn) : 0;
+    const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
     return {
       precision: Math.round(precision * 100) / 100,
-      recall:    Math.round(recall * 100) / 100,
-      f1:        Math.round(f1 * 100) / 100,
+      recall: Math.round(recall * 100) / 100,
+      f1: Math.round(f1 * 100) / 100,
     };
   };
 
-  const by_type = Object.entries(typeMap).map(([type, m]) => ({
-    type,
-    samples: m.total,
-    ...metrics(m.tp, m.fp, m.fn),
-  })).sort((a, b) => b.samples - a.samples);
+  const by_type = Object.entries(typeMap)
+    .map(([type, m]) => ({
+      type,
+      samples: m.total,
+      ...metrics(m.tp, m.fp, m.fn),
+    }))
+    .sort((a, b) => b.samples - a.samples);
 
-  const below_threshold = by_type
-    .filter(t => t.samples < minSamples)
-    .map(t => t.type);
+  const below_threshold = by_type.filter((t) => t.samples < minSamples).map((t) => t.type);
 
   // Overall metrics (macro average across types)
   const overall = by_type.length
     ? {
-        precision: Math.round(by_type.reduce((s, t) => s + t.precision, 0) / by_type.length * 100) / 100,
-        recall:    Math.round(by_type.reduce((s, t) => s + t.recall,    0) / by_type.length * 100) / 100,
-        f1:        Math.round(by_type.reduce((s, t) => s + t.f1,        0) / by_type.length * 100) / 100,
+        precision:
+          Math.round((by_type.reduce((s, t) => s + t.precision, 0) / by_type.length) * 100) / 100,
+        recall:
+          Math.round((by_type.reduce((s, t) => s + t.recall, 0) / by_type.length) * 100) / 100,
+        f1: Math.round((by_type.reduce((s, t) => s + t.f1, 0) / by_type.length) * 100) / 100,
       }
     : { precision: 0, recall: 0, f1: 0 };
 
@@ -161,7 +171,7 @@ export async function getEvalExamples({ db, classifierFn } = {}) {
       console.warn('[eval] classifier failed for sample:', err.message ?? err);
     }
 
-    const predicted = classifierFlags.some(f => f.type === sample.type);
+    const predicted = classifierFlags.some((f) => f.type === sample.type);
     const isPositive = sample.review_status !== 'false_positive';
     const raw_snippet = content.slice(0, 120).replace(/\s+/g, ' ').trim();
 
@@ -198,7 +208,9 @@ export async function getEvalExamples({ db, classifierFn } = {}) {
 export function formatEvalExamples(examples) {
   const lines = [];
 
-  lines.push(`Labeled: ${examples.total_labeled}  TP: ${examples.true_positive_count}  Missed: ${examples.false_negative_count}  FP: ${examples.false_positive_count}`);
+  lines.push(
+    `Labeled: ${examples.total_labeled}  TP: ${examples.true_positive_count}  Missed: ${examples.false_negative_count}  FP: ${examples.false_positive_count}`,
+  );
   lines.push('');
 
   if (examples.missed.length) {
@@ -230,8 +242,7 @@ export function formatEvalExamples(examples) {
   return lines.join('\n');
 }
 
-
-export function formatEvalReport(report, date = new Date()) {
+export function formatEvalReport(report, _date = new Date()) {
   const lines = [];
   lines.push(`Labeled samples: ${report.labeled_samples}`);
   lines.push('');
@@ -241,12 +252,16 @@ export function formatEvalReport(report, date = new Date()) {
     return lines.join('\n');
   }
 
-  lines.push(`Overall:    precision ${report.overall.precision.toFixed(2)}  recall ${report.overall.recall.toFixed(2)}  F1 ${report.overall.f1.toFixed(2)}`);
+  lines.push(
+    `Overall:    precision ${report.overall.precision.toFixed(2)}  recall ${report.overall.recall.toFixed(2)}  F1 ${report.overall.f1.toFixed(2)}`,
+  );
   lines.push('By type:');
 
   for (const t of report.by_type) {
     const threshold = report.below_threshold.includes(t.type) ? ' (below min samples)' : '';
-    lines.push(`  ${t.type.padEnd(14)} P ${t.precision.toFixed(2)}  R ${t.recall.toFixed(2)}  F1 ${t.f1.toFixed(2)}  (${t.samples} samples)${threshold}`);
+    lines.push(
+      `  ${t.type.padEnd(14)} P ${t.precision.toFixed(2)}  R ${t.recall.toFixed(2)}  F1 ${t.f1.toFixed(2)}  (${t.samples} samples)${threshold}`,
+    );
   }
 
   if (report.below_threshold.length) {

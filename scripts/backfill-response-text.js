@@ -15,15 +15,17 @@ import { getAdapter } from '../src/adapters/index.js';
 // Map agent names to hostnames for adapter lookup
 const AGENT_TO_HOST = {
   'claude-code': 'api.anthropic.com',
-  'codex': 'api.openai.com',
-  'gemini': 'generativelanguage.googleapis.com',
+  codex: 'api.openai.com',
+  gemini: 'generativelanguage.googleapis.com',
 };
 
 const dbPath = path.join(os.homedir(), '.agent-feed', 'feed.db');
 const db = new BetterSqlite3(dbPath);
 db.pragma('journal_mode = WAL');
 
-const rows = db.prepare('SELECT id, agent, raw_response FROM records WHERE response_text IS NULL').all();
+const rows = db
+  .prepare('SELECT id, agent, raw_response FROM records WHERE response_text IS NULL')
+  .all();
 console.log(`Records to backfill: ${rows.length}`);
 
 const update = db.prepare('UPDATE records SET response_text = ? WHERE id = ?');

@@ -1,20 +1,25 @@
-import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import http from 'node:http';
+import { after, before, describe, it } from 'node:test';
 import { Database } from '../src/storage/database.js';
 import { createUIServer } from '../src/ui/server.js';
 
 function request(port, pathname) {
   return new Promise((resolve, reject) => {
-    const req = http.request({ hostname: 'localhost', port, path: pathname }, res => {
+    const req = http.request({ hostname: 'localhost', port, path: pathname }, (res) => {
       let data = '';
-      res.on('data', c => { data += c; });
+      res.on('data', (c) => {
+        data += c;
+      });
       res.on('end', () => {
-        try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
-        catch { resolve({ status: res.statusCode, body: data }); }
+        try {
+          resolve({ status: res.statusCode, body: JSON.parse(data) });
+        } catch {
+          resolve({ status: res.statusCode, body: data });
+        }
       });
     });
     req.on('error', reject);
@@ -32,9 +37,21 @@ describe('Trends API', () => {
 
     // Seed three sessions with varied flag types
     const sessions = [
-      { id: 'sess-trends-a', agent: 'claude-code', model: 'claude-sonnet-4-6', repo: 'repo-a', branch: 'main' },
-      { id: 'sess-trends-b', agent: 'claude-code', model: 'claude-sonnet-4-6', repo: 'repo-a', branch: 'feature' },
-      { id: 'sess-trends-c', agent: 'codex',       model: 'gpt-5',             repo: 'repo-b', branch: 'main' },
+      {
+        id: 'sess-trends-a',
+        agent: 'claude-code',
+        model: 'claude-sonnet-4-6',
+        repo: 'repo-a',
+        branch: 'main',
+      },
+      {
+        id: 'sess-trends-b',
+        agent: 'claude-code',
+        model: 'claude-sonnet-4-6',
+        repo: 'repo-a',
+        branch: 'feature',
+      },
+      { id: 'sess-trends-c', agent: 'codex', model: 'gpt-5', repo: 'repo-b', branch: 'main' },
     ];
 
     for (const s of sessions) {
@@ -50,10 +67,25 @@ describe('Trends API', () => {
         raw_response: '{}',
         model: s.model,
       });
-      await db.insertFlag({ record_id: recordId, type: 'decision',    content: 'use postgres',  confidence: 0.9 });
-      await db.insertFlag({ record_id: recordId, type: 'assumption',  content: 'docker available', confidence: 0.8 });
+      await db.insertFlag({
+        record_id: recordId,
+        type: 'decision',
+        content: 'use postgres',
+        confidence: 0.9,
+      });
+      await db.insertFlag({
+        record_id: recordId,
+        type: 'assumption',
+        content: 'docker available',
+        confidence: 0.8,
+      });
       if (s.id === 'sess-trends-a') {
-        await db.insertFlag({ record_id: recordId, type: 'risk', content: 'no error handling', confidence: 0.75 });
+        await db.insertFlag({
+          record_id: recordId,
+          type: 'risk',
+          content: 'no error handling',
+          confidence: 0.75,
+        });
       }
     }
 
@@ -79,10 +111,10 @@ describe('Trends API', () => {
     it('returns flag breakdown by type', async () => {
       const res = await request(port, '/api/trends');
       assert.ok(Array.isArray(res.body.by_type));
-      const decision = res.body.by_type.find(t => t.type === 'decision');
+      const decision = res.body.by_type.find((t) => t.type === 'decision');
       assert.ok(decision);
       assert.equal(decision.count, 3);
-      const risk = res.body.by_type.find(t => t.type === 'risk');
+      const risk = res.body.by_type.find((t) => t.type === 'risk');
       assert.equal(risk.count, 1);
     });
 
@@ -108,12 +140,12 @@ describe('Trends API', () => {
       // Mark one decision flag as false positive
       const records = await db.getSession('sess-trends-a');
       const flags = await db.getFlagsForRecord(records[0].id);
-      const decisionFlag = flags.find(f => f.type === 'decision');
+      const decisionFlag = flags.find((f) => f.type === 'decision');
       await db.updateFlagReview(decisionFlag.id, { review_status: 'false_positive' });
 
       const res = await request(port, '/api/trends');
       assert.ok(Array.isArray(res.body.by_type));
-      const decision = res.body.by_type.find(t => t.type === 'decision');
+      const decision = res.body.by_type.find((t) => t.type === 'decision');
       assert.ok(typeof decision.false_positive_rate === 'number');
       assert.ok(decision.false_positive_rate > 0);
     });

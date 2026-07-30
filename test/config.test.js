@@ -1,9 +1,9 @@
-import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { loadConfig, defaultConfig } from '../src/config.js';
+import { after, before, describe, it } from 'node:test';
+import { defaultConfig, loadConfig } from '../src/config.js';
 
 describe('loadConfig', () => {
   let tmpDir;

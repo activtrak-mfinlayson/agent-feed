@@ -1,10 +1,10 @@
-import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { adapterByVendor, getAdapter } from '../src/otel/adapters/index.js';
 import { parseLogs } from '../src/otel/parse.js';
-import { getAdapter, adapterByVendor, VENDORS } from '../src/otel/adapters/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturesDir = path.join(__dirname, 'fixtures', 'otel');
@@ -31,7 +31,10 @@ describe('OTel adapter dispatch', () => {
 
   it('routes gemini_cli.* and gen_ai.* to geminiAdapter', () => {
     assert.equal(getAdapter({ name: 'gemini_cli.user_prompt' })?.vendor, 'gemini');
-    assert.equal(getAdapter({ name: 'gen_ai.client.inference.operation.details' })?.vendor, 'gemini');
+    assert.equal(
+      getAdapter({ name: 'gen_ai.client.inference.operation.details' })?.vendor,
+      'gemini',
+    );
   });
 
   it('returns null for unknown namespaces', () => {
@@ -41,7 +44,7 @@ describe('OTel adapter dispatch', () => {
 
   it('lookup by vendor', () => {
     assert.equal(adapterByVendor('claude').vendor, 'claude');
-    assert.equal(adapterByVendor('codex').vendor,  'codex');
+    assert.equal(adapterByVendor('codex').vendor, 'codex');
     assert.equal(adapterByVendor('gemini').vendor, 'gemini');
     assert.equal(adapterByVendor('bogus'), null);
   });
@@ -52,8 +55,8 @@ describe('Claude adapter — fixture extraction', () => {
 
   it('extracts session.id, prompt.id, request_id correctly', () => {
     const apiResponses = records
-      .filter(r => r.name === 'claude_code.api_response_body')
-      .map(r => getAdapter(r).extract(r));
+      .filter((r) => r.name === 'claude_code.api_response_body')
+      .map((r) => getAdapter(r).extract(r));
     assert.ok(apiResponses.length > 0, 'fixture has api_response_body events');
     for (const e of apiResponses) {
       assert.ok(e.sessionId, 'sessionId required on api_response_body');
@@ -63,7 +66,7 @@ describe('Claude adapter — fixture extraction', () => {
   });
 
   it('user_prompt has prompt.id and prompt text (when log gate enabled)', () => {
-    const promptRecord = records.find(r => r.name === 'claude_code.user_prompt');
+    const promptRecord = records.find((r) => r.name === 'claude_code.user_prompt');
     assert.ok(promptRecord, 'fixture has user_prompt');
     const e = getAdapter(promptRecord).extract(promptRecord);
     assert.equal(e.kind, 'user_prompt');
@@ -73,8 +76,8 @@ describe('Claude adapter — fixture extraction', () => {
 
   it('tool_decision has tool_name and decision', () => {
     const toolDecisions = records
-      .filter(r => r.name === 'claude_code.tool_decision')
-      .map(r => getAdapter(r).extract(r));
+      .filter((r) => r.name === 'claude_code.tool_decision')
+      .map((r) => getAdapter(r).extract(r));
     assert.ok(toolDecisions.length > 0);
     for (const e of toolDecisions) {
       assert.equal(e.kind, 'tool_decision');
@@ -85,8 +88,8 @@ describe('Claude adapter — fixture extraction', () => {
 
   it('mcp_server_connection captures status, transport, server_scope', () => {
     const mcp = records
-      .filter(r => r.name === 'claude_code.mcp_server_connection')
-      .map(r => getAdapter(r).extract(r));
+      .filter((r) => r.name === 'claude_code.mcp_server_connection')
+      .map((r) => getAdapter(r).extract(r));
     assert.ok(mcp.length > 0);
     for (const e of mcp) {
       assert.equal(e.kind, 'mcp');
@@ -96,8 +99,8 @@ describe('Claude adapter — fixture extraction', () => {
 
   it('hook_execution_complete has hook_event and num_success', () => {
     const hooks = records
-      .filter(r => r.name === 'claude_code.hook_execution_complete')
-      .map(r => getAdapter(r).extract(r));
+      .filter((r) => r.name === 'claude_code.hook_execution_complete')
+      .map((r) => getAdapter(r).extract(r));
     assert.ok(hooks.length > 0);
     for (const e of hooks) {
       assert.equal(e.kind, 'hook');
@@ -106,7 +109,7 @@ describe('Claude adapter — fixture extraction', () => {
   });
 
   it('event.sequence is coerced to number', () => {
-    const e = records.map(r => getAdapter(r).extract(r))[5];
+    const e = records.map((r) => getAdapter(r).extract(r))[5];
     assert.equal(typeof e.sequence, 'number');
   });
 });
@@ -115,7 +118,7 @@ describe('Gemini adapter — fixture extraction', () => {
   const records = recordsFromFixture('gemini.ndjson');
 
   it('user_prompt yields kind="user_prompt" with session.id and prompt_id', () => {
-    const r = records.find(r => r.name === 'gemini_cli.user_prompt');
+    const r = records.find((r) => r.name === 'gemini_cli.user_prompt');
     assert.ok(r);
     const e = getAdapter(r).extract(r);
     assert.equal(e.vendor, 'gemini');
@@ -125,14 +128,14 @@ describe('Gemini adapter — fixture extraction', () => {
   });
 
   it('api_response yields kind="api_response_body"', () => {
-    const r = records.find(r => r.name === 'gemini_cli.api_response');
+    const r = records.find((r) => r.name === 'gemini_cli.api_response');
     if (!r) return; // fixture had only error responses; skip if no success seen
     const e = getAdapter(r).extract(r);
     assert.equal(e.kind, 'api_response_body');
   });
 
   it('gen_ai.* events route via gemini adapter', () => {
-    const r = records.find(r => r.name === 'gen_ai.client.inference.operation.details');
+    const r = records.find((r) => r.name === 'gen_ai.client.inference.operation.details');
     if (!r) return;
     const e = getAdapter(r).extract(r);
     assert.equal(e.vendor, 'gemini');

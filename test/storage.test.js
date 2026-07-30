@@ -1,8 +1,8 @@
-import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { after, before, describe, it } from 'node:test';
 import { Database } from '../src/storage/database.js';
 
 describe('Database', () => {
@@ -160,7 +160,7 @@ describe('Database', () => {
       });
 
       const flags = await db.getFlagsForRecord(recordId);
-      const flag = flags.find(f => f.id === flagId);
+      const flag = flags.find((f) => f.id === flagId);
       assert.equal(flag.review_status, 'accepted');
       assert.equal(flag.reviewer_note, 'correct assumption');
       assert.equal(flag.outcome, 'no change needed');
@@ -181,7 +181,7 @@ describe('Database', () => {
           turn_index: 1,
           working_directory: '/tmp',
           response_summary: `test record ${i}`,
-          raw_response: `{"data":"` + 'x'.repeat(1000) + `"}`,
+          raw_response: `{"data":"${'x'.repeat(1000)}"}`,
           model: 'claude-sonnet-4-6',
         });
       }
@@ -194,14 +194,24 @@ describe('Database', () => {
       // would also pass with the old single-file implementation if the main
       // db file happened to grow between measurements, e.g. via checkpoint).
       const statSize = (p) => {
-        try { return fs.statSync(p).size; } catch { return 0; }
+        try {
+          return fs.statSync(p).size;
+        } catch {
+          return 0;
+        }
       };
-      const expectedSize = statSize(db.dbPath) + statSize(`${db.dbPath}-wal`) + statSize(`${db.dbPath}-shm`);
+      const expectedSize =
+        statSize(db.dbPath) + statSize(`${db.dbPath}-wal`) + statSize(`${db.dbPath}-shm`);
 
-      assert.equal(totalSize, expectedSize,
-        `getDbSizeBytes() (${totalSize}) should equal the sum of db+wal+shm (${expectedSize})`);
-      assert.ok(totalSize >= mainDbSize,
-        `Total size (${totalSize}) should include main db file (${mainDbSize})`);
+      assert.equal(
+        totalSize,
+        expectedSize,
+        `getDbSizeBytes() (${totalSize}) should equal the sum of db+wal+shm (${expectedSize})`,
+      );
+      assert.ok(
+        totalSize >= mainDbSize,
+        `Total size (${totalSize}) should include main db file (${mainDbSize})`,
+      );
       assert.ok(totalSize > 0, 'Total size should be greater than 0');
     });
   });

@@ -1,7 +1,7 @@
-import BetterSqlite3 from 'better-sqlite3';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import BetterSqlite3 from 'better-sqlite3';
 
 const VALID_FLAG_TYPES = [
   'decision',
@@ -15,12 +15,7 @@ const VALID_FLAG_TYPES = [
   'risk',
 ];
 
-const VALID_REVIEW_STATUSES = [
-  'unreviewed',
-  'accepted',
-  'needs_change',
-  'false_positive',
-];
+const VALID_REVIEW_STATUSES = ['unreviewed', 'accepted', 'needs_change', 'false_positive'];
 
 const VALID_SOURCES = ['proxy', 'otel'];
 
@@ -102,11 +97,11 @@ export class Database {
       this.db.exec(SCHEMA);
       // Backfill columns onto pre-existing tables. Each ALTER is guarded by a
       // pragma table_info check so re-runs are no-ops.
-      const flagCols = this.db.pragma('table_info(flags)').map(c => c.name);
+      const flagCols = this.db.pragma('table_info(flags)').map((c) => c.name);
       if (!flagCols.includes('context')) {
         this.db.exec('ALTER TABLE flags ADD COLUMN context TEXT');
       }
-      const recordCols = this.db.pragma('table_info(records)').map(c => c.name);
+      const recordCols = this.db.pragma('table_info(records)').map((c) => c.name);
       if (!recordCols.includes('response_text')) {
         this.db.exec('ALTER TABLE records ADD COLUMN response_text TEXT');
       }
@@ -118,7 +113,9 @@ export class Database {
       }
       // Index must be created AFTER request_id exists; kept out of SCHEMA so
       // it never runs against a pre-OTel records table.
-      this.db.exec('CREATE INDEX IF NOT EXISTS idx_records_session_request ON records(session_id, request_id)');
+      this.db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_records_session_request ON records(session_id, request_id)',
+      );
     });
     migrate();
   }
@@ -184,30 +181,30 @@ export class Database {
           ?, ?, ?, ?, ?,
           ?, ?, ?, ?
         )`;
-    const turnArgs = useDerivedTurn
-      ? [record.session_id, source]
-      : [record.turn_index];
-    this.db.prepare(sql).run(
-      id,
-      record.timestamp,
-      record.agent,
-      record.agent_version ?? null,
-      record.session_id,
-      ...turnArgs,
-      record.repo ?? null,
-      record.working_directory,
-      record.git_branch ?? null,
-      record.git_commit ?? null,
-      record.request_summary ?? null,
-      record.response_summary,
-      record.response_text ?? null,
-      record.raw_request ?? null,
-      record.raw_response,
-      record.token_count ?? null,
-      record.model,
-      source,
-      record.request_id ?? null,
-    );
+    const turnArgs = useDerivedTurn ? [record.session_id, source] : [record.turn_index];
+    this.db
+      .prepare(sql)
+      .run(
+        id,
+        record.timestamp,
+        record.agent,
+        record.agent_version ?? null,
+        record.session_id,
+        ...turnArgs,
+        record.repo ?? null,
+        record.working_directory,
+        record.git_branch ?? null,
+        record.git_commit ?? null,
+        record.request_summary ?? null,
+        record.response_summary,
+        record.response_text ?? null,
+        record.raw_request ?? null,
+        record.raw_response,
+        record.token_count ?? null,
+        record.model,
+        source,
+        record.request_id ?? null,
+      );
     return id;
   }
 
@@ -216,37 +213,46 @@ export class Database {
   async insertEvent(event) {
     const id = event.id;
     if (!id) throw new Error('insertEvent requires deterministic id');
-    const attrsJson = typeof event.attributes === 'string'
-      ? event.attributes
-      : JSON.stringify(event.attributes ?? {});
-    this.db.prepare(
-      `INSERT OR IGNORE INTO events (
+    const attrsJson =
+      typeof event.attributes === 'string'
+        ? event.attributes
+        : JSON.stringify(event.attributes ?? {});
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO events (
         id, timestamp, agent, session_id, prompt_id, request_id,
         event_kind, event_name, sequence, attributes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      id,
-      event.timestamp,
-      event.agent,
-      event.session_id,
-      event.prompt_id ?? null,
-      event.request_id ?? null,
-      event.event_kind,
-      event.event_name,
-      event.sequence ?? null,
-      attrsJson,
-    );
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        event.timestamp,
+        event.agent,
+        event.session_id,
+        event.prompt_id ?? null,
+        event.request_id ?? null,
+        event.event_kind,
+        event.event_name,
+        event.sequence ?? null,
+        attrsJson,
+      );
     return id;
   }
 
   async getEventsForSession(sessionId, { kind = null, promptId = null } = {}) {
     const conditions = ['session_id = ?'];
     const params = [sessionId];
-    if (kind)     { conditions.push('event_kind = ?'); params.push(kind); }
-    if (promptId) { conditions.push('prompt_id = ?');  params.push(promptId); }
-    return this.db.prepare(
-      `SELECT * FROM events WHERE ${conditions.join(' AND ')} ORDER BY sequence ASC`
-    ).all(...params);
+    if (kind) {
+      conditions.push('event_kind = ?');
+      params.push(kind);
+    }
+    if (promptId) {
+      conditions.push('prompt_id = ?');
+      params.push(promptId);
+    }
+    return this.db
+      .prepare(`SELECT * FROM events WHERE ${conditions.join(' AND ')} ORDER BY sequence ASC`)
+      .all(...params);
   }
 
   // Coalesce records for a session: when both proxy and otel rows share the same
@@ -254,16 +260,19 @@ export class Database {
   // and response_text (untruncated), prefer otel for token_count when proxy lacks it.
   // Rows without request_id (e.g. existing legacy proxy rows) pass through unchanged.
   async getRecordsCoalesced(sessionId) {
-    const records = this.db.prepare(
-      `SELECT * FROM records WHERE session_id = ? ORDER BY turn_index ASC, timestamp ASC`
-    ).all(sessionId);
+    const records = this.db
+      .prepare(`SELECT * FROM records WHERE session_id = ? ORDER BY turn_index ASC, timestamp ASC`)
+      .all(sessionId);
     if (records.length === 0) return [];
 
     // Group by request_id; null request_id rows pass through individually
     const byKey = new Map();
     const standalone = [];
     for (const r of records) {
-      if (!r.request_id) { standalone.push(r); continue; }
+      if (!r.request_id) {
+        standalone.push(r);
+        continue;
+      }
       const key = r.request_id;
       if (!byKey.has(key)) byKey.set(key, []);
       byKey.get(key).push(r);
@@ -271,11 +280,20 @@ export class Database {
 
     const merged = [];
     for (const group of byKey.values()) {
-      if (group.length === 1) { merged.push(group[0]); continue; }
-      const proxy = group.find(r => r.source === 'proxy');
-      const otel  = group.find(r => r.source === 'otel');
-      if (!proxy)  { merged.push(otel);  continue; }
-      if (!otel)   { merged.push(proxy); continue; }
+      if (group.length === 1) {
+        merged.push(group[0]);
+        continue;
+      }
+      const proxy = group.find((r) => r.source === 'proxy');
+      const otel = group.find((r) => r.source === 'otel');
+      if (!proxy) {
+        merged.push(otel);
+        continue;
+      }
+      if (!otel) {
+        merged.push(proxy);
+        continue;
+      }
       merged.push({
         ...proxy,
         token_count: proxy.token_count ?? otel.token_count,
@@ -292,33 +310,40 @@ export class Database {
 
   // Derive next turn_index for a (session, source) pair. DB-derived so it survives restarts.
   async nextTurnIndex(sessionId, source = 'proxy') {
-    const row = this.db.prepare(
-      `SELECT COALESCE(MAX(turn_index), 0) + 1 AS next FROM records WHERE session_id = ? AND source = ?`
-    ).get(sessionId, source);
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(MAX(turn_index), 0) + 1 AS next FROM records WHERE session_id = ? AND source = ?`,
+      )
+      .get(sessionId, source);
     return row?.next ?? 1;
   }
 
   async insertFlag(flag) {
     if (!VALID_FLAG_TYPES.includes(flag.type)) {
-      throw new Error(`Invalid flag type: ${flag.type}. Must be one of: ${VALID_FLAG_TYPES.join(', ')}`);
+      throw new Error(
+        `Invalid flag type: ${flag.type}. Must be one of: ${VALID_FLAG_TYPES.join(', ')}`,
+      );
     }
     const id = randomUUID();
-    this.db.prepare(
-      `INSERT INTO flags (id, record_id, type, content, context, confidence, review_status)
-       VALUES (?, ?, ?, ?, ?, ?, 'unreviewed')`
-    ).run(id, flag.record_id, flag.type, flag.content, flag.context ?? null, flag.confidence);
+    this.db
+      .prepare(
+        `INSERT INTO flags (id, record_id, type, content, context, confidence, review_status)
+       VALUES (?, ?, ?, ?, ?, ?, 'unreviewed')`,
+      )
+      .run(id, flag.record_id, flag.type, flag.content, flag.context ?? null, flag.confidence);
     return id;
   }
 
   async getSession(sessionId) {
-    return this.db.prepare(
-      `SELECT * FROM records WHERE session_id = ? ORDER BY turn_index ASC`
-    ).all(sessionId);
+    return this.db
+      .prepare(`SELECT * FROM records WHERE session_id = ? ORDER BY turn_index ASC`)
+      .all(sessionId);
   }
 
   async listSessions() {
-    return this.db.prepare(
-      `SELECT
+    return this.db
+      .prepare(
+        `SELECT
         session_id,
         agent,
         model,
@@ -328,27 +353,28 @@ export class Database {
         COUNT(*) as turn_count
        FROM records
        GROUP BY session_id
-       ORDER BY latest_timestamp DESC`
-    ).all();
+       ORDER BY latest_timestamp DESC`,
+      )
+      .all();
   }
 
   async getFlagsForRecord(recordId) {
-    return this.db.prepare(
-      `SELECT * FROM flags WHERE record_id = ?`
-    ).all(recordId);
+    return this.db.prepare(`SELECT * FROM flags WHERE record_id = ?`).all(recordId);
   }
 
   async updateFlagReview(flagId, { review_status, reviewer_note, outcome }) {
     if (review_status && !VALID_REVIEW_STATUSES.includes(review_status)) {
       throw new Error(`Invalid review_status: ${review_status}`);
     }
-    this.db.prepare(
-      `UPDATE flags SET
+    this.db
+      .prepare(
+        `UPDATE flags SET
         review_status = COALESCE(?, review_status),
         reviewer_note = COALESCE(?, reviewer_note),
         outcome = COALESCE(?, outcome)
-       WHERE id = ?`
-    ).run(review_status ?? null, reviewer_note ?? null, outcome ?? null, flagId);
+       WHERE id = ?`,
+      )
+      .run(review_status ?? null, reviewer_note ?? null, outcome ?? null, flagId);
   }
 
   async bulkUpdateFlagReview(flagIds, reviewStatus) {
@@ -357,9 +383,9 @@ export class Database {
     }
     if (!flagIds.length) return 0;
     const placeholders = flagIds.map(() => '?').join(',');
-    const result = this.db.prepare(
-      `UPDATE flags SET review_status = ? WHERE id IN (${placeholders})`
-    ).run(reviewStatus, ...flagIds);
+    const result = this.db
+      .prepare(`UPDATE flags SET review_status = ? WHERE id IN (${placeholders})`)
+      .run(reviewStatus, ...flagIds);
     return result.changes;
   }
 
@@ -367,34 +393,54 @@ export class Database {
     // Build WHERE clause for records
     const conditions = [];
     const params = [];
-    if (agent)    { conditions.push('r.agent = ?');       params.push(agent); }
-    if (repo)     { conditions.push('r.repo = ?');        params.push(repo); }
-    if (branch)   { conditions.push('r.git_branch = ?');  params.push(branch); }
-    if (dateFrom) { conditions.push('r.timestamp >= ?');  params.push(dateFrom); }
-    if (dateTo)   { conditions.push('r.timestamp <= ?');  params.push(dateTo.includes('T') ? dateTo : dateTo + 'T23:59:59.999Z'); }
+    if (agent) {
+      conditions.push('r.agent = ?');
+      params.push(agent);
+    }
+    if (repo) {
+      conditions.push('r.repo = ?');
+      params.push(repo);
+    }
+    if (branch) {
+      conditions.push('r.git_branch = ?');
+      params.push(branch);
+    }
+    if (dateFrom) {
+      conditions.push('r.timestamp >= ?');
+      params.push(dateFrom);
+    }
+    if (dateTo) {
+      conditions.push('r.timestamp <= ?');
+      params.push(dateTo.includes('T') ? dateTo : `${dateTo}T23:59:59.999Z`);
+    }
 
-    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
     // Total flags
-    const totalRow = this.db.prepare(
-      `SELECT COUNT(f.id) as total FROM flags f JOIN records r ON f.record_id = r.id ${where}`
-    ).get(...params);
+    const totalRow = this.db
+      .prepare(
+        `SELECT COUNT(f.id) as total FROM flags f JOIN records r ON f.record_id = r.id ${where}`,
+      )
+      .get(...params);
     const total_flags = totalRow?.total ?? 0;
 
     // By type with false_positive_rate
-    const by_type = this.db.prepare(
-      `SELECT
+    const by_type = this.db
+      .prepare(
+        `SELECT
         f.type,
         COUNT(f.id) as count,
         CAST(SUM(CASE WHEN f.review_status = 'false_positive' THEN 1 ELSE 0 END) AS REAL) / NULLIF(COUNT(f.id), 0) as false_positive_rate
        FROM flags f JOIN records r ON f.record_id = r.id ${where}
        GROUP BY f.type
-       ORDER BY count DESC`
-    ).all(...params);
+       ORDER BY count DESC`,
+      )
+      .all(...params);
 
     // By session
-    const by_session = this.db.prepare(
-      `SELECT
+    const by_session = this.db
+      .prepare(
+        `SELECT
         r.session_id,
         r.agent,
         r.repo,
@@ -403,22 +449,25 @@ export class Database {
         COUNT(f.id) as flag_count
        FROM records r LEFT JOIN flags f ON f.record_id = r.id ${where}
        GROUP BY r.session_id
-       ORDER BY latest_timestamp DESC`
-    ).all(...params);
+       ORDER BY latest_timestamp DESC`,
+      )
+      .all(...params);
 
     return { total_flags, by_type, by_session };
   }
 
   async getSessionFlagCounts() {
-    return this.db.prepare(
-      `SELECT
+    return this.db
+      .prepare(
+        `SELECT
         r.session_id,
         COUNT(f.id) as total_flags,
         SUM(CASE WHEN f.review_status = 'unreviewed' THEN 1 ELSE 0 END) as unreviewed_flags
        FROM records r
        LEFT JOIN flags f ON f.record_id = r.id
-       GROUP BY r.session_id`
-    ).all();
+       GROUP BY r.session_id`,
+      )
+      .all();
   }
 
   async getRecordsWithFlags(sessionId) {
@@ -436,15 +485,15 @@ export class Database {
 
   _attachFlags(records) {
     if (!records.length) return [];
-    const recordIds = records.map(r => r.id).filter(Boolean);
+    const recordIds = records.map((r) => r.id).filter(Boolean);
     if (!recordIds.length) {
       for (const r of records) r.flags = [];
       return records;
     }
     const placeholders = recordIds.map(() => '?').join(',');
-    const allFlags = this.db.prepare(
-      `SELECT * FROM flags WHERE record_id IN (${placeholders})`
-    ).all(...recordIds);
+    const allFlags = this.db
+      .prepare(`SELECT * FROM flags WHERE record_id IN (${placeholders})`)
+      .all(...recordIds);
     const flagsByRecord = new Map();
     for (const flag of allFlags) {
       if (!flagsByRecord.has(flag.record_id)) flagsByRecord.set(flag.record_id, []);
@@ -458,11 +507,7 @@ export class Database {
 
   async getDbSizeBytes() {
     let totalSize = 0;
-    const files = [
-      this.dbPath,
-      `${this.dbPath}-wal`,
-      `${this.dbPath}-shm`
-    ];
+    const files = [this.dbPath, `${this.dbPath}-wal`, `${this.dbPath}-shm`];
 
     for (const file of files) {
       try {

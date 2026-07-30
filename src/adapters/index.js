@@ -8,9 +8,13 @@ export const AGENTS = {
 function parseSSEEvents(body) {
   const events = [];
   for (const block of body.split('\n\n')) {
-    const dataLine = block.split('\n').find(l => l.startsWith('data: '));
+    const dataLine = block.split('\n').find((l) => l.startsWith('data: '));
     if (!dataLine) continue;
-    try { events.push(JSON.parse(dataLine.slice(6))); } catch { /* skip malformed */ }
+    try {
+      events.push(JSON.parse(dataLine.slice(6)));
+    } catch {
+      /* skip malformed */
+    }
   }
   return events;
 }
@@ -39,10 +43,12 @@ const claudeAdapter = {
     if (fromRequest) return fromRequest;
 
     // Fall back to response message ID
-    try { return JSON.parse(body).id ?? null; } catch {}
+    try {
+      return JSON.parse(body).id ?? null;
+    } catch {}
     if (!isSSE(body)) return null;
     const events = parseSSEEvents(body);
-    const start = events.find(e => e.type === 'message_start');
+    const start = events.find((e) => e.type === 'message_start');
     return start?.message?.id ?? null;
   },
 
@@ -50,7 +56,12 @@ const claudeAdapter = {
     try {
       const parsed = JSON.parse(body);
       const parts = parsed.content ?? [];
-      return parts.filter(p => p.type === 'text').map(p => p.text).join('\n') || null;
+      return (
+        parts
+          .filter((p) => p.type === 'text')
+          .map((p) => p.text)
+          .join('\n') || null
+      );
     } catch {}
     if (!isSSE(body)) return null;
     const events = parseSSEEvents(body);
@@ -64,10 +75,12 @@ const claudeAdapter = {
   },
 
   extractModel(body) {
-    try { return JSON.parse(body).model ?? null; } catch {}
+    try {
+      return JSON.parse(body).model ?? null;
+    } catch {}
     if (!isSSE(body)) return null;
     const events = parseSSEEvents(body);
-    const start = events.find(e => e.type === 'message_start');
+    const start = events.find((e) => e.type === 'message_start');
     return start?.message?.model ?? null;
   },
 
@@ -79,11 +92,11 @@ const claudeAdapter = {
     } catch {}
     if (!isSSE(body)) return null;
     const events = parseSSEEvents(body);
-    const start = events.find(e => e.type === 'message_start');
-    const delta = events.find(e => e.type === 'message_delta');
+    const start = events.find((e) => e.type === 'message_start');
+    const delta = events.find((e) => e.type === 'message_delta');
     const inputTokens = start?.message?.usage?.input_tokens ?? 0;
     const outputTokens = delta?.usage?.output_tokens ?? 0;
-    return (inputTokens + outputTokens) || null;
+    return inputTokens + outputTokens || null;
   },
 };
 
@@ -98,9 +111,7 @@ const codexAdapter = {
         if (event.type === 'thread.started' && event.thread_id) {
           return event.thread_id;
         }
-      } catch {
-        continue;
-      }
+      } catch {}
     }
     return context.requestHash ?? null;
   },
@@ -118,9 +129,7 @@ const codexAdapter = {
         ) {
           messages.push(event.item.text);
         }
-      } catch {
-        continue;
-      }
+      } catch {}
     }
     return messages.join('\n') || null;
   },
@@ -131,9 +140,7 @@ const codexAdapter = {
       try {
         const event = JSON.parse(line);
         if (event.model) return event.model;
-      } catch {
-        continue;
-      }
+      } catch {}
     }
     return null;
   },
@@ -147,9 +154,7 @@ const codexAdapter = {
           const u = event.usage;
           return (u.input_tokens ?? 0) + (u.output_tokens ?? 0) || null;
         }
-      } catch {
-        continue;
-      }
+      } catch {}
     }
     return null;
   },
@@ -196,7 +201,7 @@ const geminiAdapter = {
       const candidates = parsed.candidates ?? [];
       if (!candidates.length) return null;
       const parts = candidates[0]?.content?.parts ?? [];
-      return parts.map(p => p.text ?? '').join('\n') || null;
+      return parts.map((p) => p.text ?? '').join('\n') || null;
     } catch {
       return null;
     }

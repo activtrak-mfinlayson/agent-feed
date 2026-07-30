@@ -1,10 +1,10 @@
-import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { Database } from '../src/storage/database.js';
+import { after, before, describe, it } from 'node:test';
 import { runClassifierEval } from '../src/eval.js';
+import { Database } from '../src/storage/database.js';
 
 describe('runClassifierEval', () => {
   let tmpDir, db;
@@ -30,17 +30,17 @@ describe('runClassifierEval', () => {
   it('reports precision, recall, F1 across labeled samples', async () => {
     // Seed records with labeled flags
     const pairs = [
-      { type: 'decision',   status: 'accepted',       raw: 'I decided to use JWT for auth' },
-      { type: 'assumption', status: 'accepted',       raw: 'Assuming docker is available' },
-      { type: 'decision',   status: 'false_positive', raw: 'Here is the list of files' },
-      { type: 'risk',       status: 'needs_change',   raw: 'This could break in production' },
+      { type: 'decision', status: 'accepted', raw: 'I decided to use JWT for auth' },
+      { type: 'assumption', status: 'accepted', raw: 'Assuming docker is available' },
+      { type: 'decision', status: 'false_positive', raw: 'Here is the list of files' },
+      { type: 'risk', status: 'needs_change', raw: 'This could break in production' },
     ];
 
     for (const p of pairs) {
       const recordId = await db.insertRecord({
         timestamp: new Date().toISOString(),
         agent: 'claude-code',
-        session_id: 'eval-sess-' + Math.random(),
+        session_id: `eval-sess-${Math.random()}`,
         turn_index: 1,
         working_directory: '/tmp',
         response_summary: 'test',
@@ -63,10 +63,16 @@ describe('runClassifierEval', () => {
         return { response_summary: 'listed files', flags: [] };
       }
       if (content.includes('JWT')) {
-        return { response_summary: 'jwt decision', flags: [{ type: 'decision', content, confidence: 0.9 }] };
+        return {
+          response_summary: 'jwt decision',
+          flags: [{ type: 'decision', content, confidence: 0.9 }],
+        };
       }
       if (content.includes('docker')) {
-        return { response_summary: 'docker assumption', flags: [{ type: 'assumption', content, confidence: 0.85 }] };
+        return {
+          response_summary: 'docker assumption',
+          flags: [{ type: 'assumption', content, confidence: 0.85 }],
+        };
       }
       if (content.includes('production')) {
         return { response_summary: 'risk', flags: [{ type: 'risk', content, confidence: 0.8 }] };
