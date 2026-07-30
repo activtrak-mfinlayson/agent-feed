@@ -516,6 +516,32 @@ describe('GET /api/sessions/:id/digest', () => {
     }
   });
 
+  it('bypasses the failure cooldown when the live flag count has changed since the failure, even within the 60s window', async () => {
+    let calls = 0;
+    const { db, server, port } = await buildServer({
+      digestSynthesizer: async () => { calls++; throw new Error('provider is down'); },
+    });
+    try {
+      await seedSession(db, 'sess-cooldown-flagchange', FLAG_THRESHOLD);
+
+      const res1 = await fetch(`http://localhost:${port}/api/sessions/sess-cooldown-flagchange/digest`);
+      assert.equal((await res1.json()).status, 'unavailable');
+      assert.equal(calls, 1);
+
+      // A new flag arrives on the still-active session while well within
+      // the 60s cooldown window (no clock advance, no timer mock).
+      const recordId = (await db.getSession('sess-cooldown-flagchange'))[0].id;
+      await db.insertFlag({ record_id: recordId, type: 'risk', content: 'Fresh risk', confidence: 0.9 });
+
+      const res2 = await fetch(`http://localhost:${port}/api/sessions/sess-cooldown-flagchange/digest`);
+      assert.equal((await res2.json()).status, 'unavailable');
+      assert.equal(calls, 2, 'a flag-count change should bypass the stale cooldown and re-invoke the synthesizer');
+    } finally {
+      await server.close();
+      await db.close();
+    }
+  });
+
   it('integration: seeds real flags via insertFlag past threshold and round-trips through real storage methods', async () => {
     const db = new Database(':memory:');
     await db.init();

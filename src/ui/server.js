@@ -105,6 +105,13 @@ export function createUIServer({ db, digestSynthesizer = null, digestConfig = {}
   // scoped and in-memory only — no new DB table needed, and it's fine for
   // this to reset on daemon restart. Cleared on the next successful
   // generation for that session.
+  // Value shape is { at, flagCount } rather than a bare timestamp: flagCount
+  // is the live flag count observed at the moment synthesis failed. If new
+  // flags land on an actively-running session while it's still within the
+  // cooldown window, that's new content worth trying to synthesize against
+  // even though the timer hasn't expired yet — so the cooldown check below
+  // bypasses the wait whenever the current live flag count no longer matches
+  // the count recorded at failure time.
   const digestRecentFailures = new Map();
   const DIGEST_FAILURE_COOLDOWN_MS = 60_000;
 
@@ -265,9 +272,15 @@ export function createUIServer({ db, digestSynthesizer = null, digestConfig = {}
       // Cache miss or flag-count mismatch, above threshold, enabled — this is
       // the path that would invoke the (billed) synthesizer. If this session
       // failed recently, skip re-invoking it on every ~20s poll and return
-      // the unavailable shape directly instead.
-      const lastFailureAt = digestRecentFailures.get(sessionId);
-      if (lastFailureAt != null && Date.now() - lastFailureAt < DIGEST_FAILURE_COOLDOWN_MS) {
+      // the unavailable shape directly instead — unless the live flag count
+      // has changed since that failure, in which case there's new content
+      // worth trying to synthesize even though the cooldown window hasn't
+      // elapsed yet.
+      const lastFailure = digestRecentFailures.get(sessionId);
+      const stillInCooldown = lastFailure != null
+        && Date.now() - lastFailure.at < DIGEST_FAILURE_COOLDOWN_MS
+        && lastFailure.flagCount === liveFlagCount;
+      if (stillInCooldown) {
         return json(res, 200, { status: 'unavailable', latest_turn_at, active_window_minutes });
       }
 
@@ -281,13 +294,13 @@ export function createUIServer({ db, digestSynthesizer = null, digestConfig = {}
         synthesized = await digestSynthesizer(flagsForSynthesis);
       } catch (err) {
         console.error('[agent-feed] digest synthesis failed:', err.message ?? err);
-        digestRecentFailures.set(sessionId, Date.now());
+        digestRecentFailures.set(sessionId, { at: Date.now(), flagCount: liveFlagCount });
         return json(res, 200, { status: 'unavailable', latest_turn_at, active_window_minutes });
       }
 
       const highlights = validateHighlights(synthesized?.highlights, flagIds);
       if (!highlights.length) {
-        digestRecentFailures.set(sessionId, Date.now());
+        digestRecentFailures.set(sessionId, { at: Date.now(), flagCount: liveFlagCount });
         return json(res, 200, { status: 'unavailable', latest_turn_at, active_window_minutes });
       }
 
