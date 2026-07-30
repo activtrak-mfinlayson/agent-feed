@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useSession } from "@/hooks/use-session";
 import { useUpdateFlagStatus, useSaveNotes, useBulkUpdate } from "@/hooks/use-flag-mutations";
 import { useHighlightNavigation } from "@/hooks/use-highlight-navigation";
@@ -27,6 +27,19 @@ export function SessionDetail({ sessionId, modelFilter, onClearModelFilter }: Se
   const updateStatus = useUpdateFlagStatus(sessionId);
   const saveNotes = useSaveNotes(sessionId);
   const bulkUpdate = useBulkUpdate(sessionId);
+
+  // Stable identity across SessionDetail re-renders (react-query's `mutate`
+  // itself is already stable) so TurnBlock/FlagCard's memoization isn't
+  // defeated by a fresh inline closure on every render.
+  const handleFlagStatusChange = useCallback(
+    (flagId: string, status: ReviewStatus) => updateStatus.mutate({ flagId, status }),
+    [updateStatus.mutate],
+  );
+  const handleSaveNotes = useCallback(
+    (flagId: string, note: string | null, outcome: string | null) =>
+      saveNotes.mutate({ flagId, reviewerNote: note, outcome }),
+    [saveNotes.mutate],
+  );
 
   const {
     expandedFlagIds,
@@ -132,8 +145,8 @@ export function SessionDetail({ sessionId, modelFilter, onClearModelFilter }: Se
           onToggleFlag={toggleFlag}
           ringingFlagIds={ringingFlagIds}
           registerFlagRef={registerFlagRef}
-          onFlagStatusChange={(flagId, status) => updateStatus.mutate({ flagId, status })}
-          onSaveNotes={(flagId, note, outcome) => saveNotes.mutate({ flagId, reviewerNote: note, outcome })}
+          onFlagStatusChange={handleFlagStatusChange}
+          onSaveNotes={handleSaveNotes}
         />
       ))}
     </div>

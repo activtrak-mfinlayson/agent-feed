@@ -95,9 +95,31 @@ export function useHighlightNavigation({
     return record ? record.model !== modelFilter : false;
   }
 
+  // Whether the target flag is present in the session data we already have
+  // loaded (i.e. some FlagCard for it could mount right now). The digest
+  // polls independently of useSession, so it can reference a flag from a
+  // turn that hasn't been fetched into allRecords yet. Without this check,
+  // navigateToFlags would arm pendingScrollIdRef for a flag that may not
+  // mount for a long time (or until an unrelated refetch), producing a
+  // surprise scroll/focus jump later while the user is doing something else.
+  function isFlagResolvable(flagId: string): boolean {
+    return (allRecords ?? []).some((r) => r.flags?.some((f) => f.id === flagId));
+  }
+
   function navigateToFlags(flagIds: string[]) {
     if (!flagIds.length) return;
     const [firstId, ...restIds] = flagIds;
+
+    if (!isFlagResolvable(firstId)) {
+      // Don't silently queue a scroll for a flag that isn't renderable yet —
+      // tell the user now. Unlike the model-filter case, there's no reliable
+      // trigger to know when to retry, so no automatic retry is queued here.
+      toast("Flag hasn't loaded yet", {
+        description: "It's from a part of the session that hasn't loaded. Try again in a moment.",
+      });
+      return;
+    }
+
     const alreadyExpanded = expandedFlagIds.has(firstId);
 
     setExpandedFlagIds((prev) => {

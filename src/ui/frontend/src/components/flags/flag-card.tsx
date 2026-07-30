@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { memo, useState, useRef, useEffect, useCallback } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,7 +50,7 @@ function getTypeColor(type: string) {
   return TYPE_COLOR[type] ?? "text-foreground";
 }
 
-export function FlagCard({ flag, expanded, onToggle, onStatusChange, onSaveNotes, ringed, registerRef }: FlagCardProps) {
+function FlagCardImpl({ flag, expanded, onToggle, onStatusChange, onSaveNotes, ringed, registerRef }: FlagCardProps) {
   const isReviewed = flag.review_status !== "unreviewed";
   const [note, setNote] = useState(flag.reviewer_note ?? "");
   const [outcome, setOutcome] = useState(flag.outcome ?? "");
@@ -214,3 +214,10 @@ export function FlagCard({ flag, expanded, onToggle, onStatusChange, onSaveNotes
     </div>
   );
 }
+
+// Default shallow-prop comparison is sufficient here: `flag`, `expanded`,
+// `ringed` only change when this specific flag's own data/state changes, and
+// `onToggle`/`registerRef` now have stable per-flag identity (see turn-block.tsx's
+// getToggleCallback/getRegisterRefCallback caches), so this actually avoids
+// re-rendering sibling FlagCards when only one flag in a turn changes.
+export const FlagCard = memo(FlagCardImpl);
