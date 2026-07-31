@@ -80,11 +80,7 @@ export type FlagType =
   | "workaround"
   | "risk";
 
-export type ReviewStatus =
-  | "unreviewed"
-  | "accepted"
-  | "needs_change"
-  | "false_positive";
+export type ReviewStatus = "unreviewed" | "accepted" | "needs_change" | "false_positive";
 
 // OTel-derived events surfaced in the UI ────────────────────────────────────
 export interface OtelEvent {

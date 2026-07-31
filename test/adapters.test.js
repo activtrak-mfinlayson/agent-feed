@@ -1,6 +1,6 @@
-import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { getAdapter, AGENTS } from '../src/adapters/index.js';
+import { before, describe, it } from 'node:test';
+import { AGENTS, getAdapter } from '../src/adapters/index.js';
 
 describe('getAdapter', () => {
   it('detects claude from host', () => {
@@ -68,7 +68,7 @@ describe('Claude adapter', () => {
     const body = JSON.stringify({ id: 'msg_abc123', content: [] });
     assert.equal(
       adapter.extractSessionId(body, { rawRequest }),
-      'df565c04-0888-4ccd-8567-be9826a9b4ed'
+      'df565c04-0888-4ccd-8567-be9826a9b4ed',
     );
   });
 
@@ -151,7 +151,10 @@ describe('Codex adapter', () => {
   it('extracts content from agent_message item', () => {
     const body = [
       JSON.stringify({ type: 'thread.started', thread_id: 'thr_xyz789' }),
-      JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'I wrote the function' } }),
+      JSON.stringify({
+        type: 'item.completed',
+        item: { type: 'agent_message', text: 'I wrote the function' },
+      }),
       JSON.stringify({ type: 'turn.completed' }),
     ].join('\n');
     assert.equal(adapter.extractContent(body), 'I wrote the function');
@@ -195,31 +198,41 @@ describe('Gemini adapter (Code Assist SSE)', () => {
   });
 
   const sseBody = [
-    'data: ' + JSON.stringify({
-      response: {
-        candidates: [{ content: { role: 'model', parts: [{ thought: true, text: 'thinking...' }] } }],
-        usageMetadata: { trafficType: 'ON_DEMAND' },
-        modelVersion: 'gemini-3-flash-preview',
-        responseId: 'resp_gemini_001',
-      },
-    }),
+    'data: ' +
+      JSON.stringify({
+        response: {
+          candidates: [
+            { content: { role: 'model', parts: [{ thought: true, text: 'thinking...' }] } },
+          ],
+          usageMetadata: { trafficType: 'ON_DEMAND' },
+          modelVersion: 'gemini-3-flash-preview',
+          responseId: 'resp_gemini_001',
+        },
+      }),
     '',
-    'data: ' + JSON.stringify({
-      response: {
-        candidates: [{ content: { role: 'model', parts: [{ text: 'Hello! ' }] } }],
-        modelVersion: 'gemini-3-flash-preview',
-        responseId: 'resp_gemini_001',
-      },
-    }),
+    'data: ' +
+      JSON.stringify({
+        response: {
+          candidates: [{ content: { role: 'model', parts: [{ text: 'Hello! ' }] } }],
+          modelVersion: 'gemini-3-flash-preview',
+          responseId: 'resp_gemini_001',
+        },
+      }),
     '',
-    'data: ' + JSON.stringify({
-      response: {
-        candidates: [{ content: { role: 'model', parts: [{ text: 'How can I help?' }] }, finishReason: 'STOP' }],
-        usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 10, totalTokenCount: 110 },
-        modelVersion: 'gemini-3-flash-preview',
-        responseId: 'resp_gemini_001',
-      },
-    }),
+    'data: ' +
+      JSON.stringify({
+        response: {
+          candidates: [
+            {
+              content: { role: 'model', parts: [{ text: 'How can I help?' }] },
+              finishReason: 'STOP',
+            },
+          ],
+          usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 10, totalTokenCount: 110 },
+          modelVersion: 'gemini-3-flash-preview',
+          responseId: 'resp_gemini_001',
+        },
+      }),
     '',
   ].join('\n');
 

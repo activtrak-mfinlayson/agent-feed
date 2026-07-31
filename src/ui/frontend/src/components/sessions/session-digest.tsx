@@ -1,6 +1,6 @@
+import type { Flag } from "@/api/types";
 import { useSessionDigest } from "@/hooks/use-session-digest";
 import { cn } from "@/lib/utils";
-import type { Flag } from "@/api/types";
 
 interface SessionDigestProps {
   sessionId: string;
@@ -26,14 +26,21 @@ function isFullyReviewed(flagIds: string[], flagsById: Map<string, Flag>): boole
   });
 }
 
-export function SessionDigest({ sessionId, flags, onHighlightClick, announcement }: SessionDigestProps) {
+export function SessionDigest({
+  sessionId,
+  flags,
+  onHighlightClick,
+  announcement,
+}: SessionDigestProps) {
   const { data, isLoading, error, refetch, isFetching } = useSessionDigest(sessionId);
 
   // First-ever fetch still in flight, no prior data to fall back on — show a
   // brief loading indicator rather than silently rendering nothing, so a
   // large session doesn't look broken while the synthesis call is running.
   if (isLoading && !data) {
-    return <div className="font-mono text-xs text-muted-foreground p-4">synthesizing digest...</div>;
+    return (
+      <div className="font-mono text-xs text-muted-foreground p-4">synthesizing digest...</div>
+    );
   }
 
   // A hard transport/HTTP error (e.g. 404/403) with nothing to show yet.
@@ -76,7 +83,9 @@ export function SessionDigest({ sessionId, flags, onHighlightClick, announcement
   return (
     <div className="space-y-2 font-mono text-xs">
       {/* Visually hidden; announces multi-flag ring matches to screen readers */}
-      <div aria-live="polite" className="sr-only">{announcement}</div>
+      <div aria-live="polite" className="sr-only">
+        {announcement}
+      </div>
       <h3 className="text-sm font-medium text-foreground">Digest ({data.highlights.length})</h3>
       <div className="rounded border border-border divide-y divide-border">
         {data.highlights.map((highlight, i) => {

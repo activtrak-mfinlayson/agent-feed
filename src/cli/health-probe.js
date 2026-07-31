@@ -17,7 +17,10 @@ const DEFAULT_TIMEOUT_MS = Number(process.env.AGENT_FEED_HEALTH_TIMEOUT_MS) || 3
 // queue. 5s leaves room without making total budget noticeably less responsive.
 const PER_REQUEST_TIMEOUT_MS = 5_000;
 
-export async function waitForHealth(port, { timeoutMs = DEFAULT_TIMEOUT_MS, intervalMs = 200 } = {}) {
+export async function waitForHealth(
+  port,
+  { timeoutMs = DEFAULT_TIMEOUT_MS, intervalMs = 200 } = {},
+) {
   const deadline = Date.now() + timeoutMs;
   // lastErr is always a string by the time we return — callers can rely on
   // it for the failure message without conditional checks.
@@ -40,11 +43,12 @@ export async function waitForHealth(port, { timeoutMs = DEFAULT_TIMEOUT_MS, inte
       // request exceeded PER_REQUEST_TIMEOUT_MS. AbortError messages from
       // fetch are terse; prepend our context so logs are actionable.
       const msg = err?.message ?? String(err);
-      lastErr = err?.name === 'TimeoutError' || /aborted|timeout/i.test(msg)
-        ? `request to /api/health timed out after ${PER_REQUEST_TIMEOUT_MS}ms (daemon may be migrating a large DB)`
-        : msg;
+      lastErr =
+        err?.name === 'TimeoutError' || /aborted|timeout/i.test(msg)
+          ? `request to /api/health timed out after ${PER_REQUEST_TIMEOUT_MS}ms (daemon may be migrating a large DB)`
+          : msg;
     }
-    await new Promise(r => setTimeout(r, intervalMs));
+    await new Promise((r) => setTimeout(r, intervalMs));
   }
   return { ok: false, lastError: lastErr };
 }

@@ -1,5 +1,5 @@
-import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
 import { scrubAttrs, scrubString } from '../src/otel/scrub.js';
 
 describe('PII scrub', () => {
@@ -13,7 +13,7 @@ describe('PII scrub', () => {
         'organization.id': 'org',
         'installation.id': 'inst',
         'session.id': 'keep-me',
-        'tool_name': 'Bash',
+        tool_name: 'Bash',
       };
       const out = scrubAttrs(input);
       assert.equal(out['user.email'], undefined);
@@ -23,7 +23,7 @@ describe('PII scrub', () => {
       assert.equal(out['organization.id'], undefined);
       assert.equal(out['installation.id'], undefined);
       assert.equal(out['session.id'], 'keep-me');
-      assert.equal(out['tool_name'], 'Bash');
+      assert.equal(out.tool_name, 'Bash');
     });
 
     it('redacts email in plain string attribute', () => {
@@ -56,7 +56,7 @@ describe('PII scrub', () => {
       });
       assert.deepEqual(out.recipients, [
         '[EMAIL]',
-        { other: 'value' },     // user.email key stripped
+        { other: 'value' }, // user.email key stripped
         ['[EMAIL]'],
       ]);
     });
@@ -111,9 +111,7 @@ describe('PII scrub', () => {
     });
 
     it('scrubs Gemini gen_ai.input.messages structure', () => {
-      const messages = JSON.stringify([
-        { role: 'user', content: 'login as admin@gem.dev' },
-      ]);
+      const messages = JSON.stringify([{ role: 'user', content: 'login as admin@gem.dev' }]);
       const out = scrubAttrs({ 'gen_ai.input.messages': messages });
       const parsed = JSON.parse(out['gen_ai.input.messages']);
       assert.equal(parsed[0].content, 'login as [EMAIL]');

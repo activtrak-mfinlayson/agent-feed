@@ -1,11 +1,11 @@
 import { memo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Button } from "@/components/ui/button";
-import { FlagCard } from "@/components/flags/flag-card";
 import { fetchRawRecord } from "@/api/client";
-import { formatTime } from "@/lib/utils";
 import type { Record, ReviewStatus } from "@/api/types";
+import { FlagCard } from "@/components/flags/flag-card";
+import { Button } from "@/components/ui/button";
+import { formatTime } from "@/lib/utils";
 
 interface TurnBlockProps {
   record: Record;
@@ -67,15 +67,24 @@ function TurnBlockImpl({
   }
 
   async function toggleRaw() {
-    if (rawVisible) { setRawVisible(false); return; }
+    if (rawVisible) {
+      setRawVisible(false);
+      return;
+    }
     if (rawContent === null) {
       setRawLoading(true);
       try {
         const data = await fetchRawRecord(sessionId, record.id);
         let pretty = data.raw_response;
-        try { pretty = JSON.stringify(JSON.parse(data.raw_response), null, 2); } catch { /* not JSON */ }
+        try {
+          pretty = JSON.stringify(JSON.parse(data.raw_response), null, 2);
+        } catch {
+          /* not JSON */
+        }
         setRawContent(pretty);
-      } catch { setRawContent("Failed to load raw response"); }
+      } catch {
+        setRawContent("Failed to load raw response");
+      }
       setRawLoading(false);
     }
     setRawVisible(true);
@@ -97,9 +106,8 @@ function TurnBlockImpl({
   const allReviewed = flags.every((f) => f.review_status !== "unreviewed");
 
   const responseText = record.response_text;
-  const previewText = responseText && responseText.length > 500
-    ? responseText.slice(0, 500)
-    : responseText;
+  const previewText =
+    responseText && responseText.length > 500 ? responseText.slice(0, 500) : responseText;
   const isLong = (responseText?.length ?? 0) > 500;
 
   return (
@@ -107,7 +115,9 @@ function TurnBlockImpl({
       {/* Summary + timestamp */}
       <div className="flex items-start justify-between gap-4 mb-2">
         <div>
-          <span className="font-mono text-[9px] text-muted-foreground uppercase tracking-wider">summary</span>
+          <span className="font-mono text-[9px] text-muted-foreground uppercase tracking-wider">
+            summary
+          </span>
           <p className="text-sm text-foreground leading-relaxed mt-0.5">
             {record.response_summary}
           </p>
@@ -130,9 +140,12 @@ function TurnBlockImpl({
       {/* Agent response — the actual message being analyzed */}
       {responseText && (
         <div className="mb-2">
-          <span className="font-mono text-[9px] text-muted-foreground uppercase tracking-wider">agent response</span>
+          <span className="font-mono text-[9px] text-muted-foreground uppercase tracking-wider">
+            agent response
+          </span>
           <div className="mt-1 bg-card/50 border border-border/50 rounded-md p-3 max-h-64 overflow-y-auto">
-          <div className="prose prose-invert prose-xs max-w-none
+            <div
+              className="prose prose-invert prose-xs max-w-none
             [&_table]:text-[11px] [&_table]:font-mono [&_table]:border-collapse
             [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:bg-muted
             [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1
@@ -147,19 +160,20 @@ function TurnBlockImpl({
             [&_h3]:text-xs [&_h3]:font-medium [&_h3]:text-foreground [&_h3]:mt-1 [&_h3]:mb-0.5
             [&_strong]:text-foreground
             [&_a]:text-primary [&_a]:no-underline hover:[&_a]:underline
-          ">
-            <Markdown remarkPlugins={[remarkGfm]}>
-              {showFullText ? responseText : (previewText ?? "")}
-            </Markdown>
-          </div>
-          {isLong && (
-            <button
-              onClick={() => setShowFullText(!showFullText)}
-              className="mt-1 text-primary font-mono text-[10px] hover:underline cursor-pointer"
+          "
             >
-              {showFullText ? "show less" : "show more"}
-            </button>
-          )}
+              <Markdown remarkPlugins={[remarkGfm]}>
+                {showFullText ? responseText : (previewText ?? "")}
+              </Markdown>
+            </div>
+            {isLong && (
+              <button
+                onClick={() => setShowFullText(!showFullText)}
+                className="mt-1 text-primary font-mono text-[10px] hover:underline cursor-pointer"
+              >
+                {showFullText ? "show less" : "show more"}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -199,13 +213,17 @@ function TurnBlockImpl({
 // subset of each Set relevant to this turn's own flag ids — if none of this
 // turn's flags moved in or out of expanded/ringed, this turn doesn't need to
 // re-render just because some other turn's flag was toggled.
-function turnBlockPropsAreEqual(prevProps: Readonly<TurnBlockProps>, nextProps: Readonly<TurnBlockProps>): boolean {
+function turnBlockPropsAreEqual(
+  prevProps: Readonly<TurnBlockProps>,
+  nextProps: Readonly<TurnBlockProps>,
+): boolean {
   if (prevProps.record !== nextProps.record) return false;
   if (prevProps.sessionId !== nextProps.sessionId) return false;
 
   const flagIds = (nextProps.record.flags ?? []).map((f) => f.id);
   for (const flagId of flagIds) {
-    if (prevProps.expandedFlagIds.has(flagId) !== nextProps.expandedFlagIds.has(flagId)) return false;
+    if (prevProps.expandedFlagIds.has(flagId) !== nextProps.expandedFlagIds.has(flagId))
+      return false;
     if (prevProps.ringingFlagIds.has(flagId) !== nextProps.ringingFlagIds.has(flagId)) return false;
   }
 

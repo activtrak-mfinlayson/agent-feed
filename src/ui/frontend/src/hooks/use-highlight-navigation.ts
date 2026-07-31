@@ -87,6 +87,7 @@ export function useHighlightNavigation({
       clearTimeout(ringTimeoutRef.current);
       ringTimeoutRef.current = null;
     }
+    // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is the re-run trigger, not read in the body -- this must fire on every session switch.
   }, [sessionId]);
 
   function isFlagFilteredOut(flagId: string): boolean {
@@ -165,7 +166,7 @@ export function useHighlightNavigation({
     if (isFlagFilteredOut(pending[0])) return;
     pendingNavFlagIdsRef.current = null;
     navigateToFlags(pending);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // biome-ignore lint/correctness/useExhaustiveDependencies: modelFilter is the re-run trigger; navigateToFlags/isFlagFilteredOut are recreated every render and would fire this on every render instead.
   }, [modelFilter]);
 
   function handleHighlightClick(flagIds: string[]) {

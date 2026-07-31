@@ -1,4 +1,13 @@
-import type { Session, Record, RawResponse, Trends, ReviewStatus, OtelEvent, ToolDecisionsResponse, SessionDigest } from "./types";
+import type {
+  OtelEvent,
+  RawResponse,
+  Record,
+  ReviewStatus,
+  Session,
+  SessionDigest,
+  ToolDecisionsResponse,
+  Trends,
+} from "./types";
 
 const BASE = "";
 
@@ -11,10 +20,7 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-export function fetchSessions(params: {
-  agent?: string;
-  date?: string;
-}): Promise<Session[]> {
+export function fetchSessions(params: { agent?: string; date?: string }): Promise<Session[]> {
   const sp = new URLSearchParams();
   if (params.agent) sp.set("agent", params.agent);
   if (params.date) sp.set("date", params.date);
@@ -26,10 +32,7 @@ export function fetchSession(sessionId: string): Promise<Record[]> {
   return fetchJSON(`/api/sessions/${encodeURIComponent(sessionId)}`);
 }
 
-export function fetchRawRecord(
-  sessionId: string,
-  recordId: string,
-): Promise<RawResponse> {
+export function fetchRawRecord(sessionId: string, recordId: string): Promise<RawResponse> {
   return fetchJSON(
     `/api/sessions/${encodeURIComponent(sessionId)}/records/${encodeURIComponent(recordId)}/raw`,
   );

@@ -1,12 +1,12 @@
-import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { Database } from '../src/storage/database.js';
-import { Pipeline } from '../src/pipeline.js';
-import { OtelSink } from '../src/otel/sink.js';
 import { parseLogs } from '../src/otel/parse.js';
+import { OtelSink } from '../src/otel/sink.js';
+import { Pipeline } from '../src/pipeline.js';
+import { Database } from '../src/storage/database.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturesDir = path.join(__dirname, 'fixtures', 'otel');
@@ -25,20 +25,33 @@ describe('OTel sink — Claude fixture', () => {
   it('ingests fixture: writes events table and records for api_response_body', async () => {
     const db = new Database(':memory:');
     await db.init();
-    const pipeline = new Pipeline({ db, classifierFn: null });
+    const _pipeline = new Pipeline({ db, classifierFn: null });
     const sink = new OtelSink({ db });
     const records = recordsFromFixture('claude.ndjson');
 
     const counts = await sink.ingestLogs(records);
-    assert.ok(counts.events > 0,  'at least one event row written');
+    assert.ok(counts.events > 0, 'at least one event row written');
     assert.ok(counts.records > 0, 'at least one records row written');
 
     // verify event_kinds present in DB
-    const sessionIds = db.db.prepare('SELECT DISTINCT session_id FROM events').all().map(r => r.session_id);
+    const sessionIds = db.db
+      .prepare('SELECT DISTINCT session_id FROM events')
+      .all()
+      .map((r) => r.session_id);
     assert.ok(sessionIds.length > 0);
 
-    const kinds = db.db.prepare(`SELECT DISTINCT event_kind FROM events WHERE session_id = ?`).all(sessionIds[0]).map(r => r.event_kind);
-    for (const k of ['user_prompt', 'tool_decision', 'tool_result', 'mcp', 'hook', 'api_response_body']) {
+    const kinds = db.db
+      .prepare(`SELECT DISTINCT event_kind FROM events WHERE session_id = ?`)
+      .all(sessionIds[0])
+      .map((r) => r.event_kind);
+    for (const k of [
+      'user_prompt',
+      'tool_decision',
+      'tool_result',
+      'mcp',
+      'hook',
+      'api_response_body',
+    ]) {
       assert.ok(kinds.includes(k), `missing kind ${k} in DB; got ${kinds.join(',')}`);
     }
     await db.close();
@@ -82,11 +95,11 @@ describe('OTel sink — Claude fixture', () => {
     const all = db.db.prepare('SELECT attributes FROM events').all();
     for (const r of all) {
       const attrs = JSON.parse(r.attributes);
-      assert.equal(attrs['user.email'],         undefined);
-      assert.equal(attrs['user.id'],            undefined);
-      assert.equal(attrs['user.account_uuid'],  undefined);
-      assert.equal(attrs['user.account_id'],    undefined);
-      assert.equal(attrs['organization.id'],    undefined);
+      assert.equal(attrs['user.email'], undefined);
+      assert.equal(attrs['user.id'], undefined);
+      assert.equal(attrs['user.account_uuid'], undefined);
+      assert.equal(attrs['user.account_id'], undefined);
+      assert.equal(attrs['organization.id'], undefined);
     }
     await db.close();
   });
@@ -102,7 +115,10 @@ describe('OTel sink — Gemini fixture', () => {
     const counts = await sink.ingestLogs(records);
     assert.ok(counts.events > 0);
 
-    const kinds = db.db.prepare(`SELECT DISTINCT event_kind FROM events WHERE agent = 'gemini'`).all().map(r => r.event_kind);
+    const kinds = db.db
+      .prepare(`SELECT DISTINCT event_kind FROM events WHERE agent = 'gemini'`)
+      .all()
+      .map((r) => r.event_kind);
     assert.ok(kinds.includes('user_prompt'), `expected user_prompt in ${kinds.join(',')}`);
     await db.close();
   });
@@ -114,12 +130,16 @@ describe('OTel sink — error handling', () => {
     await db.init();
     const sink = new OtelSink({ db });
 
-    const counts = await sink.ingestLogs([{
-      name: 'claude_code.user_prompt',
-      time: '2026-04-29T00:00:00.000Z',
-      attrs: { /* no session.id */ },
-      resource: {},
-    }]);
+    const counts = await sink.ingestLogs([
+      {
+        name: 'claude_code.user_prompt',
+        time: '2026-04-29T00:00:00.000Z',
+        attrs: {
+          /* no session.id */
+        },
+        resource: {},
+      },
+    ]);
     assert.equal(counts.skipped, 1);
     assert.ok(!counts.events, 'no events written when session.id missing');
     await db.close();
@@ -130,11 +150,13 @@ describe('OTel sink — error handling', () => {
     await db.init();
     const sink = new OtelSink({ db });
 
-    const counts = await sink.ingestLogs([{
-      name: 'random.foreign.event',
-      attrs: { 'session.id': 'abc' },
-      resource: {},
-    }]);
+    const counts = await sink.ingestLogs([
+      {
+        name: 'random.foreign.event',
+        attrs: { 'session.id': 'abc' },
+        resource: {},
+      },
+    ]);
     assert.equal(counts.skipped, 1);
     await db.close();
   });

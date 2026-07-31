@@ -1,15 +1,15 @@
 import { useCallback, useMemo } from "react";
-import { useSession } from "@/hooks/use-session";
-import { useUpdateFlagStatus, useSaveNotes, useBulkUpdate } from "@/hooks/use-flag-mutations";
+import type { ReviewStatus } from "@/api/types";
+import { Button } from "@/components/ui/button";
+import { useBulkUpdate, useSaveNotes, useUpdateFlagStatus } from "@/hooks/use-flag-mutations";
 import { useHighlightNavigation } from "@/hooks/use-highlight-navigation";
-import { TurnBlock } from "./turn-block";
-import { SessionDigest } from "./session-digest";
-import { ToolDecisionTimeline } from "./tool-decision-timeline";
+import { useSession } from "@/hooks/use-session";
+import { formatDate } from "@/lib/utils";
 import { HookActivity } from "./hook-activity";
 import { MCPHealth } from "./mcp-health";
-import { Button } from "@/components/ui/button";
-import { formatDate } from "@/lib/utils";
-import type { ReviewStatus } from "@/api/types";
+import { SessionDigest } from "./session-digest";
+import { ToolDecisionTimeline } from "./tool-decision-timeline";
+import { TurnBlock } from "./turn-block";
 
 interface SessionDetailProps {
   sessionId: string;
@@ -21,9 +21,7 @@ interface SessionDetailProps {
 
 export function SessionDetail({ sessionId, modelFilter, onClearModelFilter }: SessionDetailProps) {
   const { data: allRecords, isLoading, error } = useSession(sessionId);
-  const records = modelFilter
-    ? allRecords?.filter((r) => r.model === modelFilter)
-    : allRecords;
+  const records = modelFilter ? allRecords?.filter((r) => r.model === modelFilter) : allRecords;
   const updateStatus = useUpdateFlagStatus(sessionId);
   const saveNotes = useSaveNotes(sessionId);
   const bulkUpdate = useBulkUpdate(sessionId);
@@ -53,13 +51,16 @@ export function SessionDetail({ sessionId, modelFilter, onClearModelFilter }: Se
   // Digest always covers the whole session regardless of the model filter
   // (see plan's Key Technical Decisions), so its review-status lookups need
   // the unfiltered flag set, not the possibly-filtered `records`/`allFlags`.
-  const digestFlags = useMemo(
-    () => (allRecords ?? []).flatMap((r) => r.flags ?? []),
-    [allRecords],
-  );
+  const digestFlags = useMemo(() => (allRecords ?? []).flatMap((r) => r.flags ?? []), [allRecords]);
 
-  if (isLoading) return <div className="p-10 text-center font-mono text-xs text-muted-foreground">loading session...</div>;
-  if (error || !records?.length) return <div className="p-10 text-center text-sm text-muted-foreground">Session not found.</div>;
+  if (isLoading)
+    return (
+      <div className="p-10 text-center font-mono text-xs text-muted-foreground">
+        loading session...
+      </div>
+    );
+  if (error || !records?.length)
+    return <div className="p-10 text-center text-sm text-muted-foreground">Session not found.</div>;
 
   const allFlags = records.flatMap((r) => r.flags ?? []);
   const unreviewed = allFlags.filter((f) => f.review_status === "unreviewed");
@@ -94,9 +95,7 @@ export function SessionDetail({ sessionId, modelFilter, onClearModelFilter }: Se
           {first.agent} · {first.model} · {formatDate(first.timestamp)}
           {first.git_branch ? ` · ${first.git_branch}` : ""}
         </p>
-        <p className="font-mono text-[11px] text-muted-foreground mt-0.5">
-          {parts.join(" · ")}
-        </p>
+        <p className="font-mono text-[11px] text-muted-foreground mt-0.5">{parts.join(" · ")}</p>
       </div>
 
       {/* Bulk actions — only when there's something to triage */}

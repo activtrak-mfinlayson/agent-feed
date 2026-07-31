@@ -7,9 +7,11 @@ export function createAdapter({ vendor, prefixes, kindMap, attrKeys }) {
   return {
     vendor,
     matches(name) {
-      return typeof name === 'string' && prefixList.some(p => name.startsWith(p));
+      return typeof name === 'string' && prefixList.some((p) => name.startsWith(p));
     },
-    kindFor(name) { return kindMap[name] ?? 'unknown'; },
+    kindFor(name) {
+      return kindMap[name] ?? 'unknown';
+    },
     extract(record) {
       const a = record.attrs ?? {};
       return {
@@ -18,9 +20,9 @@ export function createAdapter({ vendor, prefixes, kindMap, attrKeys }) {
         name: record.name,
         time: record.time,
         sessionId: pickFirst(a, attrKeys.sessionId),
-        promptId:  pickFirst(a, attrKeys.promptId),
+        promptId: pickFirst(a, attrKeys.promptId),
         requestId: pickFirst(a, attrKeys.requestId),
-        sequence:  attrKeys.sequence ? numOrNull(a[attrKeys.sequence]) : null,
+        sequence: attrKeys.sequence ? numOrNull(a[attrKeys.sequence]) : null,
         attrs: a,
         resource: record.resource,
       };
@@ -30,7 +32,7 @@ export function createAdapter({ vendor, prefixes, kindMap, attrKeys }) {
 
 function pickFirst(attrs, keys) {
   if (!keys) return null;
-  for (const k of (Array.isArray(keys) ? keys : [keys])) {
+  for (const k of Array.isArray(keys) ? keys : [keys]) {
     if (attrs[k] != null) return attrs[k];
   }
   return null;

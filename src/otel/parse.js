@@ -20,7 +20,7 @@
 function coerceValue(v) {
   if (v == null) return null;
   if ('stringValue' in v) return v.stringValue;
-  if ('intValue'    in v) {
+  if ('intValue' in v) {
     const s = v.intValue;
     if (typeof s === 'number') return s;
     if (typeof s === 'string') {
@@ -33,8 +33,8 @@ function coerceValue(v) {
     const n = Number(v.doubleValue);
     return Number.isFinite(n) ? n : null;
   }
-  if ('boolValue'   in v) return Boolean(v.boolValue);
-  if ('arrayValue'  in v) {
+  if ('boolValue' in v) return Boolean(v.boolValue);
+  if ('arrayValue' in v) {
     return (v.arrayValue?.values ?? []).map(coerceValue);
   }
   if ('kvlistValue' in v) {
@@ -105,7 +105,7 @@ function vendorPrefixFor(serviceName) {
   const s = String(serviceName).toLowerCase();
   if (s.includes('claude')) return 'claude_code';
   if (s.includes('gemini')) return 'gemini_cli';
-  if (s.includes('codex'))  return 'codex';
+  if (s.includes('codex')) return 'codex';
   return null;
 }
 
@@ -119,14 +119,19 @@ export function parseMetrics(envelope) {
       for (const m of sm.metrics ?? []) {
         const name = m.name;
         const points = m.sum?.dataPoints ?? m.gauge?.dataPoints ?? m.histogram?.dataPoints ?? [];
-        const kind = m.sum ? 'sum' : (m.gauge ? 'gauge' : (m.histogram ? 'histogram' : 'unknown'));
+        const kind = m.sum ? 'sum' : m.gauge ? 'gauge' : m.histogram ? 'histogram' : 'unknown';
         for (const dp of points) {
           out.push({
             name,
             kind,
             time: nanoToIso(dp.timeUnixNano),
             attrs: attrsToObject(dp.attributes),
-            value: dp.asInt != null ? Number(dp.asInt) : (dp.asDouble != null ? Number(dp.asDouble) : null),
+            value:
+              dp.asInt != null
+                ? Number(dp.asInt)
+                : dp.asDouble != null
+                  ? Number(dp.asDouble)
+                  : null,
             resource,
           });
         }

@@ -66,11 +66,16 @@ export class OtelReceiver {
   async stop() {
     if (!this.server) return;
     return new Promise((resolve) => {
-      this.server.close(() => { this.server = null; resolve(); });
+      this.server.close(() => {
+        this.server = null;
+        resolve();
+      });
     });
   }
 
-  getMetrics() { return { ...this.metrics }; }
+  getMetrics() {
+    return { ...this.metrics };
+  }
 
   async _handle(req, res) {
     if (req.method !== 'POST') {
@@ -193,7 +198,7 @@ export class OtelReceiver {
         if (enc === 'gzip') {
           try {
             buf = zlib.gunzipSync(buf);
-          } catch (err) {
+          } catch (_err) {
             const e = new Error('gunzip failed');
             e.code = 'BAD_ENCODING';
             reject(e);

@@ -1,5 +1,5 @@
-import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
 import { validateClassifierWithFallback } from '../src/classifier/index.js';
 
 describe('validateClassifierWithFallback', () => {
@@ -16,9 +16,9 @@ describe('validateClassifierWithFallback', () => {
   });
 
   it('falls back to ollama when configured provider fails', async () => {
-    let callCount = 0;
+    let _callCount = 0;
     const mockFetch = async (url) => {
-      callCount++;
+      _callCount++;
       // First call (anthropic validation via key check) -- no key set
       // Second call (ollama tags endpoint) -- succeeds
       if (url.includes('11434')) return { ok: true, json: async () => ({}) };
@@ -68,7 +68,9 @@ describe('validateClassifierWithFallback', () => {
   });
 
   it('falls back to anthropic api key when local providers fail', async () => {
-    const mockFetch = async () => { throw new Error('unreachable'); };
+    const mockFetch = async () => {
+      throw new Error('unreachable');
+    };
 
     const savedKey = process.env.ANTHROPIC_API_KEY;
     try {
@@ -89,7 +91,9 @@ describe('validateClassifierWithFallback', () => {
   });
 
   it('fails with descriptive message when all providers fail', async () => {
-    const mockFetch = async () => { throw new Error('connection refused'); };
+    const mockFetch = async () => {
+      throw new Error('connection refused');
+    };
 
     const savedKey = process.env.ANTHROPIC_API_KEY;
     try {

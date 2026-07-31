@@ -1,16 +1,15 @@
-import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { parseLogs, parseMetrics, attrsToObject } from '../src/otel/parse.js';
+import { attrsToObject, parseLogs, parseMetrics } from '../src/otel/parse.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturesDir = path.join(__dirname, 'fixtures', 'otel');
 
 function loadEnvelopes(file) {
-  return fs.readFileSync(path.join(fixturesDir, file), 'utf8')
-    .trim().split('\n').map(JSON.parse);
+  return fs.readFileSync(path.join(fixturesDir, file), 'utf8').trim().split('\n').map(JSON.parse);
 }
 
 describe('OTLP parse', () => {
@@ -70,8 +69,13 @@ describe('OTLP parse', () => {
         assert.ok(r.name?.startsWith('claude_code.'), `unexpected name ${r.name}`);
       }
       // Names cover the validated event types
-      const names = new Set(records.map(r => r.name));
-      for (const expected of ['claude_code.user_prompt', 'claude_code.tool_decision', 'claude_code.tool_result', 'claude_code.api_request']) {
+      const names = new Set(records.map((r) => r.name));
+      for (const expected of [
+        'claude_code.user_prompt',
+        'claude_code.tool_decision',
+        'claude_code.tool_result',
+        'claude_code.api_request',
+      ]) {
         assert.ok(names.has(expected), `missing ${expected} in parsed records`);
       }
     });
@@ -85,7 +89,7 @@ describe('OTLP parse', () => {
         }
       }
       assert.ok(records.length > 0);
-      const userPrompt = records.find(r => r.name === 'gemini_cli.user_prompt');
+      const userPrompt = records.find((r) => r.name === 'gemini_cli.user_prompt');
       assert.ok(userPrompt, 'fixture must contain gemini_cli.user_prompt');
       assert.ok(userPrompt.attrs['session.id']);
       assert.ok(userPrompt.attrs.prompt_id);
@@ -93,16 +97,24 @@ describe('OTLP parse', () => {
 
     it('returns ISO timestamps from nano times', () => {
       const env = {
-        resourceLogs: [{
-          resource: { attributes: [{ key: 'service.name', value: { stringValue: 'claude-code' } }] },
-          scopeLogs: [{
-            logRecords: [{
-              timeUnixNano: '1777483631858000000',
-              body: { stringValue: 'claude_code.user_prompt' },
-              attributes: [],
-            }],
-          }],
-        }],
+        resourceLogs: [
+          {
+            resource: {
+              attributes: [{ key: 'service.name', value: { stringValue: 'claude-code' } }],
+            },
+            scopeLogs: [
+              {
+                logRecords: [
+                  {
+                    timeUnixNano: '1777483631858000000',
+                    body: { stringValue: 'claude_code.user_prompt' },
+                    attributes: [],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
       };
       const records = parseLogs(env);
       assert.equal(records.length, 1);
@@ -121,8 +133,12 @@ describe('OTLP parse', () => {
           points.push(...parseMetrics(env.bodyJson));
         }
       }
-      const byName = new Set(points.map(p => p.name));
-      for (const expected of ['claude_code.session.count', 'claude_code.token.usage', 'claude_code.cost.usage']) {
+      const byName = new Set(points.map((p) => p.name));
+      for (const expected of [
+        'claude_code.session.count',
+        'claude_code.token.usage',
+        'claude_code.cost.usage',
+      ]) {
         assert.ok(byName.has(expected), `missing metric ${expected}`);
       }
     });

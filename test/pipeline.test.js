@@ -1,5 +1,5 @@
-import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
 import { Pipeline } from '../src/pipeline.js';
 import { Database } from '../src/storage/database.js';
 
@@ -15,7 +15,9 @@ describe('Pipeline', () => {
       path: '/v1/messages',
       method: 'POST',
       requestHeaders: { 'content-type': 'application/json' },
-      rawRequest: JSON.stringify({ messages: [{ role: 'user', content: 'write a login function' }] }),
+      rawRequest: JSON.stringify({
+        messages: [{ role: 'user', content: 'write a login function' }],
+      }),
       rawResponse: JSON.stringify({
         id: 'msg_claude_001',
         model: 'claude-sonnet-4-6',
@@ -28,7 +30,7 @@ describe('Pipeline', () => {
     await pipeline.process(capture);
 
     const sessions = await db.listSessions();
-    const session = sessions.find(s => s.session_id === 'msg_claude_001');
+    const session = sessions.find((s) => s.session_id === 'msg_claude_001');
     assert.ok(session, 'session should exist');
     assert.equal(session.agent, 'claude-code');
 
@@ -162,7 +164,7 @@ describe('Pipeline', () => {
       response_summary: 'agent made a decision',
       flags: [
         { type: 'decision', content: 'Use postgres over sqlite', confidence: 0.95 },
-        { type: 'assumption', content: 'Docker is available', confidence: 0.80 },
+        { type: 'assumption', content: 'Docker is available', confidence: 0.8 },
       ],
     });
 
@@ -372,7 +374,12 @@ describe('Pipeline', () => {
       requestHeaders: {},
       rawRequest: JSON.stringify({
         messages: [{ role: 'user', content: 'hello' }],
-        system: [{ type: 'text', text: 'You are Claude Code.\n\nPrimary working directory: /Users/dev/Code/mqol-db\n  - Is a git repository: true' }],
+        system: [
+          {
+            type: 'text',
+            text: 'You are Claude Code.\n\nPrimary working directory: /Users/dev/Code/mqol-db\n  - Is a git repository: true',
+          },
+        ],
         metadata: { user_id: JSON.stringify({ session_id: sessionId }) },
       }),
       rawResponse: JSON.stringify({

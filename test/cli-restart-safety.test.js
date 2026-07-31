@@ -3,12 +3,12 @@
 // up healthy, the env file is removed and the user is told exactly which
 // env vars to unset in their current shell.
 
-import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import http from 'node:http';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { describe, it } from 'node:test';
 import { waitForHealth } from '../src/cli/health-probe.js';
 
 describe('waitForHealth probe', () => {
@@ -67,7 +67,7 @@ describe('atomic env-file write (writeEnvFile via temp + rename)', () => {
   it('temp+rename is atomic — readers never see partial content', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-feed-rename-test-'));
     const finalPath = path.join(tmpDir, 'env');
-    const tmpPath = finalPath + '.tmp';
+    const tmpPath = `${finalPath}.tmp`;
     try {
       // Write a long string to tmp, then atomic rename. Any reader observing
       // the file should see either nothing (ENOENT) or the full content.
@@ -91,7 +91,7 @@ describe('atomic env-file write (writeEnvFile via temp + rename)', () => {
     const finalPath = path.join(tmpDir, 'env');
     fs.writeFileSync(finalPath, 'old content');
     try {
-      const tmpPath = finalPath + '.tmp';
+      const tmpPath = `${finalPath}.tmp`;
       fs.writeFileSync(tmpPath, 'new content');
       fs.renameSync(tmpPath, finalPath);
       assert.equal(fs.readFileSync(finalPath, 'utf8'), 'new content');

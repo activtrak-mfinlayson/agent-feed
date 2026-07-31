@@ -1,5 +1,5 @@
-import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
 import { buildDigestSynthesizer, DIGEST_SYNTHESIS_PROMPT } from '../src/classifier/index.js';
 
 const MOCK_FLAGS = [
@@ -28,7 +28,11 @@ describe('DIGEST_SYNTHESIS_PROMPT', () => {
 
 describe('buildDigestSynthesizer', () => {
   it('returns a function', () => {
-    const synthesizer = buildDigestSynthesizer({ provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' });
+    const synthesizer = buildDigestSynthesizer({
+      provider: 'anthropic',
+      model: 'claude-haiku-4-5-20251001',
+      base_url: '',
+    });
     assert.equal(typeof synthesizer, 'function');
   });
 
@@ -36,15 +40,17 @@ describe('buildDigestSynthesizer', () => {
     const mockFetch = async () => ({
       ok: true,
       json: async () => ({
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            highlights: [
-              { summary: 'Chose JWT auth over sessions', flag_ids: [1] },
-              { summary: 'Login endpoint lacks rate limiting', flag_ids: [2] },
-            ],
-          }),
-        }],
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              highlights: [
+                { summary: 'Chose JWT auth over sessions', flag_ids: [1] },
+                { summary: 'Login endpoint lacks rate limiting', flag_ids: [2] },
+              ],
+            }),
+          },
+        ],
       }),
     });
 
@@ -67,15 +73,15 @@ describe('buildDigestSynthesizer', () => {
       return {
         ok: true,
         json: async () => ({
-          choices: [{
-            message: {
-              content: JSON.stringify({
-                highlights: [
-                  { summary: 'Chose JWT auth over sessions', flag_ids: [1, 3] },
-                ],
-              }),
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  highlights: [{ summary: 'Chose JWT auth over sessions', flag_ids: [1, 3] }],
+                }),
+              },
             },
-          }],
+          ],
         }),
       };
     };
@@ -86,7 +92,10 @@ describe('buildDigestSynthesizer', () => {
     );
 
     const result = await synthesizer(MOCK_FLAGS);
-    assert.ok(capturedUrl.startsWith('http://localhost:11434'), `expected ollama URL, got ${capturedUrl}`);
+    assert.ok(
+      capturedUrl.startsWith('http://localhost:11434'),
+      `expected ollama URL, got ${capturedUrl}`,
+    );
     assert.equal(result.highlights.length, 1);
     assert.deepEqual(result.highlights[0].flag_ids, [1, 3]);
   });
@@ -124,13 +133,14 @@ describe('buildDigestSynthesizer', () => {
     // A hung local endpoint (e.g. ollama/lmstudio) is exactly the failure
     // mode this timeout exists for: the digest route awaits this call
     // synchronously inside a live HTTP request the UI polls and blocks on.
-    const hangingFetch = (url, { signal } = {}) => new Promise((resolve, reject) => {
-      signal?.addEventListener('abort', () => {
-        const err = new Error('The operation was aborted');
-        err.name = 'AbortError';
-        reject(err);
+    const hangingFetch = (_url, { signal } = {}) =>
+      new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => {
+          const err = new Error('The operation was aborted');
+          err.name = 'AbortError';
+          reject(err);
+        });
       });
-    });
 
     const synthesizer = buildDigestSynthesizer(
       { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '', timeout_ms: 50 },
@@ -179,6 +189,9 @@ describe('buildDigestSynthesizer', () => {
     );
 
     await synthesizer(MOCK_FLAGS);
-    assert.ok(capturedBody.max_tokens > 1000, `expected max_tokens > 1000, got ${capturedBody.max_tokens}`);
+    assert.ok(
+      capturedBody.max_tokens > 1000,
+      `expected max_tokens > 1000, got ${capturedBody.max_tokens}`,
+    );
   });
 });

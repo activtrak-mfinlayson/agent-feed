@@ -1,9 +1,9 @@
-import { memo, useState, useRef, useEffect, useCallback } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
+import type { Flag, ReviewStatus } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import type { Flag, ReviewStatus } from "@/api/types";
 
 interface FlagCardProps {
   flag: Flag;
@@ -50,7 +50,15 @@ function getTypeColor(type: string) {
   return TYPE_COLOR[type] ?? "text-foreground";
 }
 
-function FlagCardImpl({ flag, expanded, onToggle, onStatusChange, onSaveNotes, ringed, registerRef }: FlagCardProps) {
+function FlagCardImpl({
+  flag,
+  expanded,
+  onToggle,
+  onStatusChange,
+  onSaveNotes,
+  ringed,
+  registerRef,
+}: FlagCardProps) {
   const isReviewed = flag.review_status !== "unreviewed";
   const [note, setNote] = useState(flag.reviewer_note ?? "");
   const [outcome, setOutcome] = useState(flag.outcome ?? "");
@@ -90,13 +98,21 @@ function FlagCardImpl({ flag, expanded, onToggle, onStatusChange, onSaveNotes, r
           ringed && RING_CLASSES,
         )}
       >
-        <span className={cn("font-mono text-[10px] uppercase tracking-wide w-24 shrink-0", getTypeColor(flag.type))}>
+        <span
+          className={cn(
+            "font-mono text-[10px] uppercase tracking-wide w-24 shrink-0",
+            getTypeColor(flag.type),
+          )}
+        >
           {flag.type}
         </span>
         <span className="text-xs text-muted-foreground truncate flex-1">{flag.content}</span>
         <Badge
           variant="outline"
-          className={cn("text-[9px] font-mono shrink-0 border-0", STATUS_ACTIVE[flag.review_status])}
+          className={cn(
+            "text-[9px] font-mono shrink-0 border-0",
+            STATUS_ACTIVE[flag.review_status],
+          )}
         >
           {flag.review_status.replace("_", " ")}
         </Badge>
@@ -118,7 +134,12 @@ function FlagCardImpl({ flag, expanded, onToggle, onStatusChange, onSaveNotes, r
           onClick={onToggle}
           className="flex items-start gap-3 flex-1 text-left cursor-pointer min-w-0"
         >
-          <span className={cn("font-mono text-[10px] uppercase tracking-wide w-24 shrink-0 pt-0.5", getTypeColor(flag.type))}>
+          <span
+            className={cn(
+              "font-mono text-[10px] uppercase tracking-wide w-24 shrink-0 pt-0.5",
+              getTypeColor(flag.type),
+            )}
+          >
             {flag.type}
           </span>
           <span className="text-sm text-foreground flex-1 min-w-0 truncate">{flag.content}</span>
@@ -133,7 +154,10 @@ function FlagCardImpl({ flag, expanded, onToggle, onStatusChange, onSaveNotes, r
               variant="ghost"
               size="sm"
               className="font-mono text-[10px] h-6 px-2 text-muted-foreground hover:text-foreground"
-              onClick={(e) => { e.stopPropagation(); onStatusChange(flag.id, value); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onStatusChange(flag.id, value);
+              }}
             >
               {label}
             </Button>
@@ -149,7 +173,12 @@ function FlagCardImpl({ flag, expanded, onToggle, onStatusChange, onSaveNotes, r
       {/* Header row */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 min-w-0">
-          <span className={cn("font-mono text-[10px] uppercase tracking-wide w-24 shrink-0 pt-0.5", getTypeColor(flag.type))}>
+          <span
+            className={cn(
+              "font-mono text-[10px] uppercase tracking-wide w-24 shrink-0 pt-0.5",
+              getTypeColor(flag.type),
+            )}
+          >
             {flag.type}
           </span>
           <div className="min-w-0">
@@ -169,9 +198,7 @@ function FlagCardImpl({ flag, expanded, onToggle, onStatusChange, onSaveNotes, r
 
       {/* Context */}
       {flag.context && (
-        <p className="text-xs text-muted-foreground leading-relaxed ml-27 pl-0.5">
-          {flag.context}
-        </p>
+        <p className="text-xs text-muted-foreground leading-relaxed ml-27 pl-0.5">{flag.context}</p>
       )}
 
       {/* Actions */}

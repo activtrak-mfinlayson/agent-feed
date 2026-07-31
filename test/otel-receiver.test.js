@@ -1,10 +1,9 @@
-import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
 import zlib from 'node:zlib';
 import { OtelReceiver } from '../src/otel/receiver.js';
-import { Database } from '../src/storage/database.js';
-import { Pipeline } from '../src/pipeline.js';
 import { OtelSink } from '../src/otel/sink.js';
+import { Database } from '../src/storage/database.js';
 
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {} };
 
@@ -24,7 +23,12 @@ async function buildReceiver({ maxBody } = {}) {
   return { db, sink, receiver, port };
 }
 
-async function postJson(port, route, payload, { encoding = 'identity', contentType = 'application/json' } = {}) {
+async function postJson(
+  port,
+  route,
+  payload,
+  { encoding = 'identity', contentType = 'application/json' } = {},
+) {
   let body = Buffer.from(JSON.stringify(payload));
   const headers = { 'content-type': contentType };
   if (encoding === 'gzip') {
@@ -43,22 +47,30 @@ describe('OTel receiver — protocol', () => {
     const { receiver, port, db } = await buildReceiver();
     try {
       const envelope = {
-        resourceLogs: [{
-          resource: { attributes: [{ key: 'service.name', value: { stringValue: 'claude-code' } }] },
-          scopeLogs: [{
-            logRecords: [{
-              timeUnixNano: Date.now() * 1e6 + '',
-              body: { stringValue: 'claude_code.user_prompt' },
-              attributes: [
-                { key: 'event.name',  value: { stringValue: 'user_prompt' } },
-                { key: 'session.id',  value: { stringValue: 'sess-1' } },
-                { key: 'prompt.id',   value: { stringValue: 'p1' } },
-                { key: 'event.sequence', value: { intValue: 1 } },
-                { key: 'prompt',      value: { stringValue: 'hello' } },
-              ],
-            }],
-          }],
-        }],
+        resourceLogs: [
+          {
+            resource: {
+              attributes: [{ key: 'service.name', value: { stringValue: 'claude-code' } }],
+            },
+            scopeLogs: [
+              {
+                logRecords: [
+                  {
+                    timeUnixNano: `${Date.now() * 1e6}`,
+                    body: { stringValue: 'claude_code.user_prompt' },
+                    attributes: [
+                      { key: 'event.name', value: { stringValue: 'user_prompt' } },
+                      { key: 'session.id', value: { stringValue: 'sess-1' } },
+                      { key: 'prompt.id', value: { stringValue: 'p1' } },
+                      { key: 'event.sequence', value: { intValue: 1 } },
+                      { key: 'prompt', value: { stringValue: 'hello' } },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
       };
       const res = await postJson(port, '/v1/logs', envelope);
       assert.equal(res.status, 200);
@@ -89,16 +101,26 @@ describe('OTel receiver — protocol', () => {
     const { receiver, port, db } = await buildReceiver();
     try {
       const envelope = {
-        resourceLogs: [{
-          resource: { attributes: [{ key: 'service.name', value: { stringValue: 'claude-code' } }] },
-          scopeLogs: [{ logRecords: [{
-            body: { stringValue: 'claude_code.user_prompt' },
-            attributes: [
-              { key: 'event.name', value: { stringValue: 'user_prompt' } },
-              { key: 'session.id', value: { stringValue: 'sess-gz' } },
+        resourceLogs: [
+          {
+            resource: {
+              attributes: [{ key: 'service.name', value: { stringValue: 'claude-code' } }],
+            },
+            scopeLogs: [
+              {
+                logRecords: [
+                  {
+                    body: { stringValue: 'claude_code.user_prompt' },
+                    attributes: [
+                      { key: 'event.name', value: { stringValue: 'user_prompt' } },
+                      { key: 'session.id', value: { stringValue: 'sess-gz' } },
+                    ],
+                  },
+                ],
+              },
             ],
-          }] }],
-        }],
+          },
+        ],
       };
       const res = await postJson(port, '/v1/logs', envelope, { encoding: 'gzip' });
       assert.equal(res.status, 200);
@@ -197,9 +219,16 @@ describe('OTel receiver — protocol', () => {
   it('200 (NOT 5xx) when sink throws', async () => {
     const db = new Database(':memory:');
     await db.init();
-    const failingSink = { ingestLogs: async () => { throw new Error('boom'); } };
+    const failingSink = {
+      ingestLogs: async () => {
+        throw new Error('boom');
+      },
+    };
     const receiver = new OtelReceiver({
-      sink: failingSink, port: 0, host: '127.0.0.1', logger: silentLogger,
+      sink: failingSink,
+      port: 0,
+      host: '127.0.0.1',
+      logger: silentLogger,
     });
     await receiver.start();
     try {

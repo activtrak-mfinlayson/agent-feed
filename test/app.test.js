@@ -1,8 +1,8 @@
-import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { after, before, describe, it } from 'node:test';
 import { App } from '../src/app.js';
 
 describe('App', () => {
@@ -103,10 +103,14 @@ describe('App', () => {
         capturedRequestModel = JSON.parse(init.body).model;
         return new Response(
           JSON.stringify({
-            content: [{
-              type: 'text',
-              text: JSON.stringify({ highlights: [{ summary: 'A highlight', flag_ids: [flagId] }] }),
-            }],
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  highlights: [{ summary: 'A highlight', flag_ids: [flagId] }],
+                }),
+              },
+            ],
           }),
           { status: 200, headers: { 'content-type': 'application/json' } },
         );
@@ -118,7 +122,12 @@ describe('App', () => {
       config: {
         proxy: { port: 0 },
         ui: { port: 0 },
-        classifier: { provider: 'anthropic', model: classifierModel, base_url: '', timeout_ms: 12_345 },
+        classifier: {
+          provider: 'anthropic',
+          model: classifierModel,
+          base_url: '',
+          timeout_ms: 12_345,
+        },
         storage: { path: path.join(tmpDir, 'app-digest-resolution-test.db') },
         // digest.model intentionally omitted — this is exactly the unset
         // case resolvedDigestModel's `||` fallback exists for.
@@ -150,7 +159,9 @@ describe('App', () => {
         confidence: 0.9,
       });
 
-      const res = await fetch(`http://127.0.0.1:${app.uiPort}/api/sessions/sess-digest-resolution/digest`);
+      const res = await fetch(
+        `http://127.0.0.1:${app.uiPort}/api/sessions/sess-digest-resolution/digest`,
+      );
       assert.equal(res.status, 200);
       const body = await res.json();
       assert.equal(body.status, 'ready', `expected ready, got: ${JSON.stringify(body)}`);
