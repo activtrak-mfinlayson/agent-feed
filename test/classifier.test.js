@@ -165,4 +165,23 @@ describe('buildClassifier', () => {
       assert.ok(capturedUrl.startsWith('http://localhost:11434'), `expected ollama URL, got ${capturedUrl}`);
     });
   });
+
+  it('requests the default max_tokens budget (single-turn output is small; the digest synthesizer overrides this separately)', async () => {
+    let capturedBody;
+    const mockFetch = async (_url, opts) => {
+      capturedBody = JSON.parse(opts.body);
+      return {
+        ok: true,
+        json: async () => ({ content: [{ type: 'text', text: '{"response_summary":"ok","flags":[]}' }] }),
+      };
+    };
+
+    const classifier = buildClassifier(
+      { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' },
+      mockFetch,
+    );
+
+    await classifier('test');
+    assert.equal(capturedBody.max_tokens, 1000);
+  });
 });

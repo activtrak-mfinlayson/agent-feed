@@ -157,4 +157,28 @@ describe('buildDigestSynthesizer', () => {
     const result = await synthesizer(MOCK_FLAGS);
     assert.deepEqual(result, { highlights: [] });
   });
+
+  it('requests a larger max_tokens budget than the classifier default, to avoid truncating large sessions mid-JSON', async () => {
+    // Regression test: a real 860-flag session truncated at max_tokens 1000
+    // (stop_reason "max_tokens"), producing unparseable JSON and a silent
+    // "unavailable" digest. See DIGEST_MAX_TOKENS in src/classifier/index.js.
+    let capturedBody;
+    const mockFetch = async (_url, opts) => {
+      capturedBody = JSON.parse(opts.body);
+      return {
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: JSON.stringify({ highlights: [] }) }],
+        }),
+      };
+    };
+
+    const synthesizer = buildDigestSynthesizer(
+      { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' },
+      mockFetch,
+    );
+
+    await synthesizer(MOCK_FLAGS);
+    assert.ok(capturedBody.max_tokens > 1000, `expected max_tokens > 1000, got ${capturedBody.max_tokens}`);
+  });
 });

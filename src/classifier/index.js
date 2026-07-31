@@ -57,18 +57,26 @@ flags, return an empty highlights array.`;
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 
-function buildAnthropicBody(model, promptText, userMessage) {
+// Larger than the classifier's default 1000: a highlight's flag_ids array can
+// reference dozens of ids when many duplicate-looking flags get grouped
+// together, and the classifier's budget truncates that mid-JSON in practice
+// (verified against a real 860-flag session: 1000 tokens hit stop_reason
+// "max_tokens" and produced unparseable JSON; 4096 completed at ~1450 with
+// stop_reason "end_turn" and margin to spare).
+const DIGEST_MAX_TOKENS = 4096;
+
+function buildAnthropicBody(model, promptText, userMessage, maxTokens) {
   return {
     model,
-    max_tokens: 1000,
+    max_tokens: maxTokens,
     messages: [{ role: 'user', content: `${promptText}\n\n${userMessage}` }],
   };
 }
 
-function buildOpenAICompatibleBody(model, promptText, userMessage) {
+function buildOpenAICompatibleBody(model, promptText, userMessage, maxTokens) {
   return {
     model,
-    max_tokens: 1000,
+    max_tokens: maxTokens,
     messages: [
       { role: 'system', content: promptText },
       { role: 'user', content: userMessage },
@@ -90,8 +98,15 @@ function buildOpenAICompatibleBody(model, promptText, userMessage) {
  * allowed to hang before it's aborted and treated as a failure. This matters
  * most for the digest synthesizer, which -- unlike the fire-and-forget
  * classifier -- is awaited synchronously inside a live HTTP request.
+ *
+ * `maxTokens` bounds the model's reply. The classifier's output (a handful
+ * of flags for one turn) fits comfortably in the default 1000. The digest
+ * synthesizer passes a larger budget explicitly: with hundreds of flags to
+ * condense, a highlight's flag_ids array can reference dozens of ids, and a
+ * too-small cap truncates the response mid-JSON (stop_reason: "max_tokens"),
+ * which then fails to parse and silently yields zero highlights.
  */
-async function callLLMProvider(config, fetchFn, promptText, userMessage) {
+async function callLLMProvider(config, fetchFn, promptText, userMessage, maxTokens = 1000) {
   const { provider, model, base_url, timeout_ms } = config;
 
   let url;
@@ -100,7 +115,7 @@ async function callLLMProvider(config, fetchFn, promptText, userMessage) {
 
   if (provider === 'anthropic') {
     url = ANTHROPIC_API_URL;
-    body = buildAnthropicBody(model, promptText, userMessage);
+    body = buildAnthropicBody(model, promptText, userMessage, maxTokens);
     // API key injected by environment at runtime
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (apiKey) headers['x-api-key'] = apiKey;
@@ -108,7 +123,7 @@ async function callLLMProvider(config, fetchFn, promptText, userMessage) {
   } else {
     // ollama and lmstudio both expose OpenAI-compatible /v1/chat/completions
     url = `${base_url}/v1/chat/completions`;
-    body = buildOpenAICompatibleBody(model, promptText, userMessage);
+    body = buildOpenAICompatibleBody(model, promptText, userMessage, maxTokens);
   }
 
   const controller = new AbortController();
@@ -205,6 +220,7 @@ export function buildDigestSynthesizer(config, fetchFn = fetch) {
       fetchFn,
       DIGEST_SYNTHESIS_PROMPT,
       `Flags to synthesize:\n\n${JSON.stringify(flags)}`,
+      DIGEST_MAX_TOKENS,
     );
 
     if (text === null) {
