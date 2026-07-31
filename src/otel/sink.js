@@ -9,8 +9,8 @@
 //     since request_id is reliably on api_response_body but not api_request_body)
 
 import { createHash } from 'node:crypto';
-import { getAdapter } from './adapters/index.js';
 import { getAdapter as getProxyAdapter } from '../adapters/index.js';
+import { getAdapter } from './adapters/index.js';
 import { scrubAttrs } from './scrub.js';
 
 // Reuse the proxy adapters for response-text extraction. Their plain-JSON
@@ -64,23 +64,25 @@ export class OtelSink {
     const eventId = deterministicId(event);
 
     // Inline insertEvent (sync via better-sqlite3 prepared statement)
-    this.db.db.prepare(
-      `INSERT OR IGNORE INTO events (
+    this.db.db
+      .prepare(
+        `INSERT OR IGNORE INTO events (
         id, timestamp, agent, session_id, prompt_id, request_id,
         event_kind, event_name, sequence, attributes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      eventId,
-      event.time ?? new Date().toISOString(),
-      event.vendor,
-      event.sessionId,
-      event.promptId ?? null,
-      event.requestId ?? null,
-      event.kind,
-      event.name,
-      event.sequence ?? null,
-      JSON.stringify(scrubbedAttrs ?? {}),
-    );
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        eventId,
+        event.time ?? new Date().toISOString(),
+        event.vendor,
+        event.sessionId,
+        event.promptId ?? null,
+        event.requestId ?? null,
+        event.kind,
+        event.name,
+        event.sequence ?? null,
+        JSON.stringify(scrubbedAttrs ?? {}),
+      );
 
     if (RECORDS_KINDS.has(event.kind)) {
       this._writeRecordSync(event, scrubbedAttrs, eventId);
@@ -101,8 +103,9 @@ export class OtelSink {
     // check-then-write race that two concurrent batches for the same
     // (session, source) would otherwise hit. INSERT OR IGNORE on the
     // deterministic eventId means a retried OTel batch is a no-op.
-    this.db.db.prepare(
-      `INSERT OR IGNORE INTO records (
+    this.db.db
+      .prepare(
+        `INSERT OR IGNORE INTO records (
         id, timestamp, agent, agent_version, session_id, turn_index,
         repo, working_directory, git_branch, git_commit,
         request_summary, response_summary, response_text, raw_request, raw_response,
@@ -111,30 +114,30 @@ export class OtelSink {
         ?, ?, ?, ?, ?,
         (SELECT COALESCE(MAX(turn_index), 0) + 1 FROM records WHERE session_id = ? AND source = 'otel'),
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-      )`
-    ).run(
-      eventId,
-      event.time ?? new Date().toISOString(),
-      event.vendor,
-      null,
-      event.sessionId,
-      event.sessionId,                                    // session_id for the SELECT subquery
-      null,
-      event.resource?.['process.cwd'] ?? '<unknown>',
-      null,
-      null,
-      null,
-      (responseText ?? '').slice(0, 200),
-      responseText,
-      null,
-      typeof body === 'string' ? body : '',
-      tokenCount,
-      attrs?.model ?? attrs?.['gen_ai.response.model'] ?? 'unknown',
-      'otel',
-      event.requestId ?? null,
-    );
+      )`,
+      )
+      .run(
+        eventId,
+        event.time ?? new Date().toISOString(),
+        event.vendor,
+        null,
+        event.sessionId,
+        event.sessionId, // session_id for the SELECT subquery
+        null,
+        event.resource?.['process.cwd'] ?? '<unknown>',
+        null,
+        null,
+        null,
+        (responseText ?? '').slice(0, 200),
+        responseText,
+        null,
+        typeof body === 'string' ? body : '',
+        tokenCount,
+        attrs?.model ?? attrs?.['gen_ai.response.model'] ?? 'unknown',
+        'otel',
+        event.requestId ?? null,
+      );
   }
-
 }
 
 // Deterministic id: stable across OTel exporter retries.
@@ -154,7 +157,11 @@ function extractResponseText(body, vendor) {
   if (typeof body !== 'string' || body.length === 0) return null;
   const adapter = PROXY_ADAPTER_BY_VENDOR[vendor];
   if (!adapter?.extractContent) return null;
-  try { return adapter.extractContent(body); } catch { return null; }
+  try {
+    return adapter.extractContent(body);
+  } catch {
+    return null;
+  }
 }
 
 function extractTokenCount(attrs, vendor) {

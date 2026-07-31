@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { updateFlag, bulkUpdateFlags } from "@/api/client";
-import type { ReviewStatus } from "@/api/types";
 import { toast } from "sonner";
+import { bulkUpdateFlags, updateFlag } from "@/api/client";
+import type { ReviewStatus } from "@/api/types";
 
 export function useUpdateFlagStatus(sessionId: string | null) {
   const qc = useQueryClient();

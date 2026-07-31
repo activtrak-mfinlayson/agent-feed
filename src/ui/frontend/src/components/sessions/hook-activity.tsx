@@ -12,8 +12,12 @@ export function HookActivity({ sessionId }: HookActivityProps) {
     queryFn: () => fetchHookActivity(sessionId),
   });
 
-  if (isLoading) return <div className="font-mono text-xs text-muted-foreground p-4">loading hook activity...</div>;
-  if (error) return <div className="font-mono text-xs text-red-500 p-4">{(error as Error).message}</div>;
+  if (isLoading)
+    return (
+      <div className="font-mono text-xs text-muted-foreground p-4">loading hook activity...</div>
+    );
+  if (error)
+    return <div className="font-mono text-xs text-red-500 p-4">{(error as Error).message}</div>;
   if (!data || data.length === 0) return null;
 
   // Show only completion events to avoid duplicating start/complete pairs
@@ -35,14 +39,18 @@ export function HookActivity({ sessionId }: HookActivityProps) {
               <span className={hasIssue ? "text-amber-500" : "text-emerald-500"}>
                 {hasIssue ? "!" : "✓"}
               </span>
-              <span className="text-foreground font-medium">{asString(e.attributes.hook_event)}</span>
+              <span className="text-foreground font-medium">
+                {asString(e.attributes.hook_event)}
+              </span>
               <span className="text-muted-foreground">
                 {success}/{total} ok
                 {blocking > 0 && ` · ${blocking} blocking`}
                 {cancelled > 0 && ` · ${cancelled} cancelled`}
                 {errors > 0 && ` · ${errors} errors`}
               </span>
-              <span className="text-muted-foreground">{asNumOr0(e.attributes.total_duration_ms)}ms</span>
+              <span className="text-muted-foreground">
+                {asNumOr0(e.attributes.total_duration_ms)}ms
+              </span>
             </div>
           );
         })}

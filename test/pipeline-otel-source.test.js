@@ -1,5 +1,5 @@
-import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
 import { Pipeline } from '../src/pipeline.js';
 import { Database } from '../src/storage/database.js';
 
@@ -12,7 +12,8 @@ function claudeCapture({ id = 'msg_test', text = 'hello', requestId = null } = {
     requestHeaders: {},
     rawRequest: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
     rawResponse: JSON.stringify({
-      id, model: 'claude-opus-4-7',
+      id,
+      model: 'claude-opus-4-7',
       content: [{ type: 'text', text }],
       usage: { input_tokens: 10, output_tokens: 10 },
     }),
@@ -26,7 +27,10 @@ describe('Pipeline source param + classifier gate', () => {
     const db = new Database(':memory:');
     await db.init();
     let classifierCalls = 0;
-    const classifier = async () => { classifierCalls++; return { response_summary: 's', flags: [] }; };
+    const classifier = async () => {
+      classifierCalls++;
+      return { response_summary: 's', flags: [] };
+    };
     const pipeline = new Pipeline({ db, classifierFn: classifier });
 
     await pipeline.process(claudeCapture());
@@ -41,7 +45,10 @@ describe('Pipeline source param + classifier gate', () => {
     const db = new Database(':memory:');
     await db.init();
     let classifierCalls = 0;
-    const classifier = async () => { classifierCalls++; return { response_summary: 's', flags: [] }; };
+    const classifier = async () => {
+      classifierCalls++;
+      return { response_summary: 's', flags: [] };
+    };
     const pipeline = new Pipeline({ db, classifierFn: classifier });
 
     await pipeline.process(claudeCapture({ id: 'msg_otel' }), 'otel');
@@ -72,11 +79,18 @@ describe('Pipeline source param + classifier gate', () => {
     await pipeline.process(claudeCapture({ id: 'msg_dual' }), 'otel');
 
     const records = await db.getSession('msg_dual');
-    const proxy = records.filter(r => r.source === 'proxy').sort((a, b) => a.turn_index - b.turn_index);
-    const otel  = records.filter(r => r.source === 'otel');
-    assert.deepEqual(proxy.map(r => r.turn_index), [1, 2]);
-    assert.deepEqual(otel.map(r => r.turn_index),  [1]);
+    const proxy = records
+      .filter((r) => r.source === 'proxy')
+      .sort((a, b) => a.turn_index - b.turn_index);
+    const otel = records.filter((r) => r.source === 'otel');
+    assert.deepEqual(
+      proxy.map((r) => r.turn_index),
+      [1, 2],
+    );
+    assert.deepEqual(
+      otel.map((r) => r.turn_index),
+      [1],
+    );
     await db.close();
   });
-
 });

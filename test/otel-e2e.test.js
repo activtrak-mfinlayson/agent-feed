@@ -3,15 +3,15 @@
 // and asserts that records, events, coalesce queries, and PII scrubbing all
 // behave correctly together.
 
-import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { Database } from '../src/storage/database.js';
-import { Pipeline } from '../src/pipeline.js';
-import { OtelSink } from '../src/otel/sink.js';
 import { OtelReceiver } from '../src/otel/receiver.js';
+import { OtelSink } from '../src/otel/sink.js';
+import { Pipeline } from '../src/pipeline.js';
+import { Database } from '../src/storage/database.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixtures = path.join(__dirname, 'fixtures', 'otel');
@@ -51,12 +51,24 @@ describe('OTel end-to-end', () => {
       await replayFixture(port, 'claude.ndjson');
 
       // Records inserted from api_response_body events
-      const recordCount = db.db.prepare(`SELECT COUNT(*) AS n FROM records WHERE source = 'otel'`).get().n;
+      const recordCount = db.db
+        .prepare(`SELECT COUNT(*) AS n FROM records WHERE source = 'otel'`)
+        .get().n;
       assert.ok(recordCount > 0, 'should write at least one OTel record');
 
       // Events inserted for all kinds
-      const kinds = db.db.prepare('SELECT DISTINCT event_kind FROM events').all().map(r => r.event_kind);
-      for (const k of ['user_prompt', 'tool_decision', 'tool_result', 'mcp', 'hook', 'api_response_body']) {
+      const kinds = db.db
+        .prepare('SELECT DISTINCT event_kind FROM events')
+        .all()
+        .map((r) => r.event_kind);
+      for (const k of [
+        'user_prompt',
+        'tool_decision',
+        'tool_result',
+        'mcp',
+        'hook',
+        'api_response_body',
+      ]) {
         assert.ok(kinds.includes(k), `expected kind ${k}; got ${kinds.join(',')}`);
       }
 
@@ -91,9 +103,15 @@ describe('OTel end-to-end', () => {
     const { db, receiver, port } = await buildStack();
     try {
       await replayFixture(port, 'gemini.ndjson');
-      const geminiEvents = db.db.prepare(`SELECT COUNT(*) AS n FROM events WHERE agent = 'gemini'`).get().n;
+      const geminiEvents = db.db
+        .prepare(`SELECT COUNT(*) AS n FROM events WHERE agent = 'gemini'`)
+        .get().n;
       assert.ok(geminiEvents > 0, 'should ingest gemini events');
-      const userPrompts = db.db.prepare(`SELECT COUNT(*) AS n FROM events WHERE agent = 'gemini' AND event_kind = 'user_prompt'`).get().n;
+      const userPrompts = db.db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM events WHERE agent = 'gemini' AND event_kind = 'user_prompt'`,
+        )
+        .get().n;
       assert.ok(userPrompts > 0);
     } finally {
       await receiver.stop();

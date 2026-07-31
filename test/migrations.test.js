@@ -3,11 +3,11 @@
 // init() is idempotent, (c) a thrown error inside the transaction rolls back
 // the entire migration, leaving the DB exactly as it was on entry.
 
-import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { after, before, describe, it } from 'node:test';
 import BetterSqlite3 from 'better-sqlite3';
 import { Database } from '../src/storage/database.js';
 
@@ -26,17 +26,23 @@ describe('Database migration safety', () => {
     const db = new Database(path.join(tmpDir, 'fresh.db'));
     await db.init();
     try {
-      const tables = db.db.prepare(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`).all().map(r => r.name);
+      const tables = db.db
+        .prepare(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`)
+        .all()
+        .map((r) => r.name);
       assert.ok(tables.includes('records'));
       assert.ok(tables.includes('flags'));
       assert.ok(tables.includes('events'));
 
-      const recordCols = db.db.pragma('table_info(records)').map(c => c.name);
+      const recordCols = db.db.pragma('table_info(records)').map((c) => c.name);
       for (const expected of ['source', 'request_id', 'response_text', 'turn_index']) {
         assert.ok(recordCols.includes(expected), `records missing ${expected}`);
       }
 
-      const indexes = db.db.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='records'`).all().map(r => r.name);
+      const indexes = db.db
+        .prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='records'`)
+        .all()
+        .map((r) => r.name);
       assert.ok(indexes.includes('idx_records_session_request'));
     } finally {
       await db.close();
@@ -47,12 +53,18 @@ describe('Database migration safety', () => {
     const dbPath = path.join(tmpDir, 'idempotent.db');
     const db1 = new Database(dbPath);
     await db1.init();
-    const beforeCols = db1.db.pragma('table_info(records)').map(c => c.name).sort();
+    const beforeCols = db1.db
+      .pragma('table_info(records)')
+      .map((c) => c.name)
+      .sort();
     await db1.close();
 
     const db2 = new Database(dbPath);
-    await db2.init();   // must not throw on duplicate columns/indexes
-    const afterCols = db2.db.pragma('table_info(records)').map(c => c.name).sort();
+    await db2.init(); // must not throw on duplicate columns/indexes
+    const afterCols = db2.db
+      .pragma('table_info(records)')
+      .map((c) => c.name)
+      .sort();
     await db2.close();
 
     assert.deepEqual(afterCols, beforeCols);
@@ -73,7 +85,10 @@ describe('Database migration safety', () => {
         session_id TEXT NOT NULL
       );
     `);
-    const beforeCols = conn.pragma('table_info(records)').map(c => c.name).sort();
+    const beforeCols = conn
+      .pragma('table_info(records)')
+      .map((c) => c.name)
+      .sort();
     assert.deepEqual(beforeCols, ['id', 'session_id']);
 
     const tx = conn.transaction(() => {
@@ -84,8 +99,15 @@ describe('Database migration safety', () => {
 
     assert.throws(() => tx(), /simulated mid-migration crash/);
 
-    const afterCols = conn.pragma('table_info(records)').map(c => c.name).sort();
-    assert.deepEqual(afterCols, beforeCols, 'schema must match pre-transaction state after rollback');
+    const afterCols = conn
+      .pragma('table_info(records)')
+      .map((c) => c.name)
+      .sort();
+    assert.deepEqual(
+      afterCols,
+      beforeCols,
+      'schema must match pre-transaction state after rollback',
+    );
     conn.close();
   });
 
@@ -127,12 +149,18 @@ describe('Database migration safety', () => {
     const db = new Database(dbPath);
     await db.init();
     try {
-      const cols = db.db.pragma('table_info(records)').map(c => c.name);
+      const cols = db.db.pragma('table_info(records)').map((c) => c.name);
       for (const expected of ['source', 'request_id', 'response_text']) {
         assert.ok(cols.includes(expected), `legacy DB should be migrated to include ${expected}`);
       }
-      const indexes = db.db.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='records'`).all().map(r => r.name);
-      assert.ok(indexes.includes('idx_records_session_request'), 'index should be created post-migration');
+      const indexes = db.db
+        .prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='records'`)
+        .all()
+        .map((r) => r.name);
+      assert.ok(
+        indexes.includes('idx_records_session_request'),
+        'index should be created post-migration',
+      );
 
       // Verify the flags->records FK still works on the migrated DB by
       // round-tripping through the public insertRecord/insertFlag API.
@@ -146,7 +174,10 @@ describe('Database migration safety', () => {
         model: 'claude-opus-4-7',
       });
       const flagId = await db.insertFlag({
-        record_id: recordId, type: 'decision', content: 'check FK', confidence: 0.9,
+        record_id: recordId,
+        type: 'decision',
+        content: 'check FK',
+        confidence: 0.9,
       });
       const flags = await db.getFlagsForRecord(recordId);
       assert.equal(flags.length, 1);

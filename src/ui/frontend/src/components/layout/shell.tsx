@@ -60,7 +60,14 @@ export function Shell({
             className="lg:hidden p-2.5 cursor-pointer shrink-0"
             onClick={() => setSidebarOpen(true)}
           >
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 20 20"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            >
               <line x1="3" y1="5" x2="17" y2="5" />
               <line x1="3" y1="10" x2="17" y2="10" />
               <line x1="3" y1="15" x2="17" y2="15" />

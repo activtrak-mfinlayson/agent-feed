@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchMCPHealth } from "@/api/client";
-import { asString, asNumOr0 } from "@/lib/utils";
 import type { OtelEvent } from "@/api/types";
+import { asNumOr0, asString } from "@/lib/utils";
 
 interface MCPHealthProps {
   sessionId: string;
@@ -16,7 +16,6 @@ interface ServerLifecycle {
   errorCode?: string | null;
   totalDurationMs: number;
 }
-
 
 function group(events: OtelEvent[]): ServerLifecycle[] {
   // Group by (server_scope, transport_type) — these are the only stable
@@ -57,8 +56,10 @@ export function MCPHealth({ sessionId }: MCPHealthProps) {
     queryFn: () => fetchMCPHealth(sessionId),
   });
 
-  if (isLoading) return <div className="font-mono text-xs text-muted-foreground p-4">loading mcp health...</div>;
-  if (error) return <div className="font-mono text-xs text-red-500 p-4">{(error as Error).message}</div>;
+  if (isLoading)
+    return <div className="font-mono text-xs text-muted-foreground p-4">loading mcp health...</div>;
+  if (error)
+    return <div className="font-mono text-xs text-red-500 p-4">{(error as Error).message}</div>;
   if (!data || data.length === 0) return null;
 
   const servers = group(data);

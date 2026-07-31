@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Shell } from "@/components/layout/shell";
-import { SessionList } from "@/components/sessions/session-list";
 import { SessionDetail } from "@/components/sessions/session-detail";
+import { SessionList } from "@/components/sessions/session-list";
 import { TrendView } from "@/components/trends/trend-view";
 import { useSessions } from "@/hooks/use-sessions";
 
@@ -32,30 +32,39 @@ export default function App() {
   // Sessions are not filtered by model — model filter applies to turns within a session
   const sessions = allSessions;
 
-  const sidebar = view === "sessions" ? (
-    <SessionList
-      sessions={sessions}
-      isLoading={sessionsLoading}
-      activeSessionId={activeSessionId}
-      dateFrom={dateFrom}
-      onDateChange={setDateFrom}
-      onSelectSession={(id) => {
-        setActiveSessionId(id);
-        setView("sessions");
-      }}
-    />
-  ) : null;
+  const sidebar =
+    view === "sessions" ? (
+      <SessionList
+        sessions={sessions}
+        isLoading={sessionsLoading}
+        activeSessionId={activeSessionId}
+        dateFrom={dateFrom}
+        onDateChange={setDateFrom}
+        onSelectSession={(id) => {
+          setActiveSessionId(id);
+          setView("sessions");
+        }}
+      />
+    ) : null;
 
-  const mainContent = view === "trends" ? (
-    <TrendView agent={undefined} dateFrom={dateFrom} onSelectSession={(id) => {
-      setActiveSessionId(id);
-      setView("sessions");
-    }} />
-  ) : activeSessionId ? (
-    <SessionDetail sessionId={activeSessionId} modelFilter={selectedModel === "all" ? undefined : selectedModel} />
-  ) : (
-    <EmptyState />
-  );
+  const mainContent =
+    view === "trends" ? (
+      <TrendView
+        agent={undefined}
+        dateFrom={dateFrom}
+        onSelectSession={(id) => {
+          setActiveSessionId(id);
+          setView("sessions");
+        }}
+      />
+    ) : activeSessionId ? (
+      <SessionDetail
+        sessionId={activeSessionId}
+        modelFilter={selectedModel === "all" ? undefined : selectedModel}
+      />
+    ) : (
+      <EmptyState />
+    );
 
   return (
     <Shell

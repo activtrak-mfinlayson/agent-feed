@@ -1,6 +1,6 @@
-import { getAdapter, AGENTS } from './adapters/index.js';
-import { getGitContext } from './git.js';
 import { randomUUID } from 'node:crypto';
+import { AGENTS, getAdapter } from './adapters/index.js';
+import { getGitContext } from './git.js';
 
 // Known limitation: when both proxy and OTel capture the same Gemini turn,
 // they assign different session ids (proxy mints a UUID; OTel reads vendor
@@ -142,7 +142,7 @@ export class Pipeline {
     // Simple hash for Gemini session fallback
     let hash = 0;
     for (let i = 0; i < rawRequest.length; i++) {
-      hash = ((hash << 5) - hash) + rawRequest.charCodeAt(i);
+      hash = (hash << 5) - hash + rawRequest.charCodeAt(i);
       hash |= 0;
     }
     return `req_${Math.abs(hash).toString(16)}`;

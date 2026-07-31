@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 
-import fs from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { App } from '../app.js';
 import { loadConfig } from '../config.js';
-import { validateClassifierWithFallback } from '../classifier/index.js';
 import { waitForHealth } from './health-probe.js';
 
 const AGENT_FEED_DIR = path.join(os.homedir(), '.agent-feed');
@@ -17,16 +16,24 @@ const CONFIG_FILE = path.join(AGENT_FEED_DIR, 'config.toml');
 const ENV_FILE = path.join(AGENT_FEED_DIR, 'env');
 const MAX_LOG_SIZE = 10 * 1024 * 1024; // 10 MB cap for the log file
 const PROXY_ENV_VARS = [
-  'ANTHROPIC_BASE_URL', 'OPENAI_BASE_URL', 'GOOGLE_API_BASE_URL',
-  'GOOGLE_GEMINI_BASE_URL', 'CODE_ASSIST_ENDPOINT',
+  'ANTHROPIC_BASE_URL',
+  'OPENAI_BASE_URL',
+  'GOOGLE_API_BASE_URL',
+  'GOOGLE_GEMINI_BASE_URL',
+  'CODE_ASSIST_ENDPOINT',
   // OTel ingestion (Claude + Gemini support these directly; Codex requires
   // editing ~/.codex/config.toml — agent-feed env prints the snippet)
   'CLAUDE_CODE_ENABLE_TELEMETRY',
-  'OTEL_EXPORTER_OTLP_PROTOCOL', 'OTEL_EXPORTER_OTLP_ENDPOINT',
-  'OTEL_LOG_USER_PROMPTS', 'OTEL_LOG_TOOL_CONTENT', 'OTEL_LOG_RAW_API_BODIES',
+  'OTEL_EXPORTER_OTLP_PROTOCOL',
+  'OTEL_EXPORTER_OTLP_ENDPOINT',
+  'OTEL_LOG_USER_PROMPTS',
+  'OTEL_LOG_TOOL_CONTENT',
+  'OTEL_LOG_RAW_API_BODIES',
   'OTEL_RESOURCE_ATTRIBUTES',
-  'GEMINI_TELEMETRY_ENABLED', 'GEMINI_TELEMETRY_TARGET',
-  'GEMINI_TELEMETRY_OTLP_ENDPOINT', 'GEMINI_TELEMETRY_OTLP_PROTOCOL',
+  'GEMINI_TELEMETRY_ENABLED',
+  'GEMINI_TELEMETRY_TARGET',
+  'GEMINI_TELEMETRY_OTLP_ENDPOINT',
+  'GEMINI_TELEMETRY_OTLP_PROTOCOL',
   'GEMINI_TELEMETRY_LOG_PROMPTS',
 ];
 
@@ -34,12 +41,21 @@ function waitForFile(filePath, childProcess, timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
     const start = Date.now();
     const check = () => {
-      if (fs.existsSync(filePath)) { resolve(); }
-      else if (Date.now() - start > timeoutMs) { reject(new Error(`Timed out waiting for ${path.basename(filePath)} after ${timeoutMs / 1000}s. Check logs: ${LOG_FILE}`)); }
-      else { setTimeout(check, 100); }
+      if (fs.existsSync(filePath)) {
+        resolve();
+      } else if (Date.now() - start > timeoutMs) {
+        reject(
+          new Error(
+            `Timed out waiting for ${path.basename(filePath)} after ${timeoutMs / 1000}s. Check logs: ${LOG_FILE}`,
+          ),
+        );
+      } else {
+        setTimeout(check, 100);
+      }
     };
     childProcess.on('exit', (code) => {
-      if (code !== 0) reject(new Error(`Process exited with code ${code}. Check logs: ${LOG_FILE}`));
+      if (code !== 0)
+        reject(new Error(`Process exited with code ${code}. Check logs: ${LOG_FILE}`));
     });
     check();
   });
@@ -68,7 +84,9 @@ function readPid() {
 }
 
 function clearPid() {
-  try { fs.unlinkSync(PID_FILE); } catch (err) {
+  try {
+    fs.unlinkSync(PID_FILE);
+  } catch (err) {
     if (err.code !== 'ENOENT') throw err;
   }
 }
@@ -117,13 +135,15 @@ function writeEnvFile(port, otelPort = null) {
   // Atomic write: temp file + rename. Prevents readers (shell-init source-loads
   // and `agent-feed env` reads) from seeing a partial file if writeEnvFile is
   // killed mid-write.
-  const tmp = ENV_FILE + '.tmp';
+  const tmp = `${ENV_FILE}.tmp`;
   fs.writeFileSync(tmp, lines.join('\n'));
   fs.renameSync(tmp, ENV_FILE);
 }
 
 function clearEnvFile() {
-  try { fs.unlinkSync(ENV_FILE); } catch (err) {
+  try {
+    fs.unlinkSync(ENV_FILE);
+  } catch (err) {
     if (err.code !== 'ENOENT') throw err;
   }
 }
@@ -133,7 +153,10 @@ async function isPortInUse(port) {
   return new Promise((resolve) => {
     const server = net.createServer();
     server.once('error', () => resolve(true));
-    server.once('listening', () => { server.close(); resolve(false); });
+    server.once('listening', () => {
+      server.close();
+      resolve(false);
+    });
     server.listen(port, 'localhost');
   });
 }
@@ -153,14 +176,18 @@ function isProcessRunning(pid) {
 // process is gone after the call (regardless of how it died).
 async function killAndWait(pid, { timeoutMs = 5000 } = {}) {
   if (!pid || !isProcessRunning(pid)) return true;
-  try { process.kill(pid, 'SIGTERM'); } catch {}
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch {}
   const deadline = Date.now() + timeoutMs;
   while (isProcessRunning(pid) && Date.now() < deadline) {
-    await new Promise(r => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 100));
   }
   if (isProcessRunning(pid)) {
-    try { process.kill(pid, 'SIGKILL'); } catch {}
-    await new Promise(r => setTimeout(r, 200));
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {}
+    await new Promise((r) => setTimeout(r, 200));
   }
   return !isProcessRunning(pid);
 }
@@ -181,7 +208,7 @@ function rotateLogIfNeeded(logPath, maxSize) {
         fs.truncateSync(logPath, 0);
       }
     }
-  } catch (err) {
+  } catch (_err) {
     // If rotation fails, continue without rotating — don't block the append
     // (e.g., permission error, racing rename with another process)
   }
@@ -241,17 +268,18 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
       for (const port of [config.proxy.port, config.ui.port, config.otel?.port].filter(Boolean)) {
         if (await isPortInUse(port)) stillBoundPorts.push(port);
       }
-      const portWarning = stillBoundPorts.length > 0
-        ? `\n\n⚠ Ports still bound by an orphaned process: ${stillBoundPorts.join(', ')}` +
-          `\n  Find and kill: lsof -nP -iTCP:${stillBoundPorts.join(' -iTCP:')} -sTCP:LISTEN`
-        : '';
+      const portWarning =
+        stillBoundPorts.length > 0
+          ? `\n\n⚠ Ports still bound by an orphaned process: ${stillBoundPorts.join(', ')}` +
+            `\n  Find and kill: lsof -nP -iTCP:${stillBoundPorts.join(' -iTCP:')} -sTCP:LISTEN`
+          : '';
       console.error(
         `\n✗ Agent-feed daemon failed to become healthy within ${(probeTimeoutMs / 1000).toFixed(0)}s.` +
-        `\n  Last error: ${health.lastError}` +
-        `\n  Log: ${LOG_FILE}` +
-        portWarning +
-        `\n\nYour CURRENT shell still has these env vars exported. Run:\n\n  unset ${PROXY_ENV_VARS.join(' ')}` +
-        `\n\n…or open a new terminal. Until you do, coding agents will hang on a dead port.\n`
+          `\n  Last error: ${health.lastError}` +
+          `\n  Log: ${LOG_FILE}` +
+          portWarning +
+          `\n\nYour CURRENT shell still has these env vars exported. Run:\n\n  unset ${PROXY_ENV_VARS.join(' ')}` +
+          `\n\n…or open a new terminal. Until you do, coding agents will hang on a dead port.\n`,
       );
       process.exit(1);
     }
@@ -259,7 +287,7 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
     // Read back what the supervisor wrote
     const envStart = Date.now();
     while (!fs.existsSync(PID_FILE) && Date.now() - envStart < 3000) {
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 50));
     }
     const pid = readPid();
     const envContent = fs.existsSync(ENV_FILE) ? fs.readFileSync(ENV_FILE, 'utf8') : '';
@@ -323,7 +351,9 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
         }
 
         const delay = Math.min(1000 * 2 ** (restartCount - 1), 10_000);
-        log(`daemon exited with code ${code}, restarting in ${delay}ms (attempt ${restartCount}/${MAX_RESTARTS})`);
+        log(
+          `daemon exited with code ${code}, restarting in ${delay}ms (attempt ${restartCount}/${MAX_RESTARTS})`,
+        );
 
         setTimeout(() => {
           child = forkDaemon();
@@ -344,7 +374,9 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
           child.kill(sig);
           await new Promise((resolve) => {
             const killTimer = setTimeout(() => {
-              try { child.kill('SIGKILL'); } catch {}
+              try {
+                child.kill('SIGKILL');
+              } catch {}
               resolve();
             }, 3000);
             child.once('exit', () => {
@@ -391,9 +423,10 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
   const classifierLabel = status.classifierLabel ?? config.classifier.provider;
   const configuredProvider = config.classifier.provider;
   const actualProvider = status.classifierLabel?.split('/')[0];
-  const fallbackNote = actualProvider && actualProvider !== configuredProvider
-    ? ` (fallback from ${configuredProvider})`
-    : '';
+  const fallbackNote =
+    actualProvider && actualProvider !== configuredProvider
+      ? ` (fallback from ${configuredProvider})`
+      : '';
 
   // PID file written by supervisor in daemon mode; only write here in verbose mode
   if (verbose) writePid(process.pid);
@@ -404,9 +437,11 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
   const shutdown = async () => {
     if (verbose) console.log('\nStopping Agent Feed...');
     log('shutting down');
-    try { await app.stop(); } finally {
+    try {
+      await app.stop();
+    } finally {
       clearState();
-      if (verbose) console.log('Run: unset ' + PROXY_ENV_VARS.join(' '));
+      if (verbose) console.log(`Run: unset ${PROXY_ENV_VARS.join(' ')}`);
       process.exit(0);
     }
   };
@@ -419,10 +454,15 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
   // mode because the supervisor owns the PID file in daemon mode.
   let fatalShutdown = false;
   process.on('uncaughtException', async (err) => {
-    if (fatalShutdown) { process.exit(1); return; }
+    if (fatalShutdown) {
+      process.exit(1);
+      return;
+    }
     fatalShutdown = true;
     log(`FATAL uncaught exception: ${err.stack ?? err}`);
-    try { await app.stop(); } catch {}
+    try {
+      await app.stop();
+    } catch {}
     if (verbose) clearState(); // only in verbose mode (no supervisor)
     process.exit(1);
   });
@@ -445,7 +485,9 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
     console.log('[verbose] Press Ctrl+C to stop\n');
     process.stdin.resume();
   } else {
-    log(`proxy :${status.proxyPort}, classifier: ${classifierLabel}${fallbackNote}, ui :${status.uiPort}, db: ${dbSize}`);
+    log(
+      `proxy :${status.proxyPort}, classifier: ${classifierLabel}${fallbackNote}, ui :${status.uiPort}, db: ${dbSize}`,
+    );
   }
 }
 
@@ -463,7 +505,7 @@ async function cmdStop() {
   await killAndWait(pid);
   clearState();
   console.log(`Agent Feed stopped (PID ${pid})`);
-  console.log('Run: unset ' + PROXY_ENV_VARS.join(' '));
+  console.log(`Run: unset ${PROXY_ENV_VARS.join(' ')}`);
 }
 
 async function cmdRestart() {
@@ -503,8 +545,12 @@ async function cmdEval(subcommand) {
   }
 
   const { Database } = await import('../storage/database.js');
-  const { buildClassifier, validateClassifierWithFallback } = await import('../classifier/index.js');
-  const { runClassifierEval, getEvalExamples, formatEvalReport, formatEvalExamples } = await import('../eval.js');
+  const { buildClassifier, validateClassifierWithFallback } = await import(
+    '../classifier/index.js'
+  );
+  const { runClassifierEval, getEvalExamples, formatEvalReport, formatEvalExamples } = await import(
+    '../eval.js'
+  );
 
   const db = new Database(dbPath);
   await db.init();
@@ -573,7 +619,7 @@ fi`;
 }
 
 // Exports for testing
-export { rotateLogIfNeeded, MAX_LOG_SIZE };
+export { MAX_LOG_SIZE, rotateLogIfNeeded };
 
 // Parse CLI args and run if executed as main module (not imported).
 // Raw string comparison against process.argv[1] breaks when this file is

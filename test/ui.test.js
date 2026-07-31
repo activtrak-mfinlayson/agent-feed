@@ -1,9 +1,9 @@
-import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import http from 'node:http';
+import { after, before, describe, it } from 'node:test';
 import { Database } from '../src/storage/database.js';
 import { createUIServer } from '../src/ui/server.js';
 
@@ -16,12 +16,18 @@ function request(port, pathname, method = 'GET', body = null) {
       method,
       headers: { 'content-type': 'application/json' },
     };
-    const req = http.request(options, res => {
+    const req = http.request(options, (res) => {
       let data = '';
-      res.on('data', c => { data += c; });
+      res.on('data', (c) => {
+        data += c;
+      });
       res.on('end', () => {
         let parsed;
-        try { parsed = JSON.parse(data); } catch { parsed = data; }
+        try {
+          parsed = JSON.parse(data);
+        } catch {
+          parsed = data;
+        }
         resolve({ status: res.statusCode, body: parsed });
       });
     });
@@ -86,7 +92,7 @@ describe('UI Server API', () => {
       assert.equal(res.status, 200);
       assert.ok(Array.isArray(res.body));
       assert.ok(res.body.length >= 1);
-      const session = res.body.find(s => s.session_id === sessionId);
+      const session = res.body.find((s) => s.session_id === sessionId);
       assert.ok(session, 'seeded session should appear');
       assert.ok(session.latest_timestamp);
       assert.ok(session.turn_count >= 1);
@@ -95,7 +101,7 @@ describe('UI Server API', () => {
     it('supports agent filter', async () => {
       const res = await request(port, '/api/sessions?agent=claude-code');
       assert.equal(res.status, 200);
-      assert.ok(res.body.every(s => s.agent === 'claude-code'));
+      assert.ok(res.body.every((s) => s.agent === 'claude-code'));
     });
   });
 
@@ -129,7 +135,7 @@ describe('UI Server API', () => {
 
       // Verify persisted
       const session = await request(port, `/api/sessions/${sessionId}`);
-      const flag = session.body[0].flags.find(f => f.id === flagId);
+      const flag = session.body[0].flags.find((f) => f.id === flagId);
       assert.equal(flag.review_status, 'accepted');
       assert.equal(flag.reviewer_note, 'correct decision');
     });
@@ -153,10 +159,14 @@ describe('UI Server API', () => {
   describe('GET /', () => {
     it('serves a response for the root route', async () => {
       const res = await new Promise((resolve, reject) => {
-        const req = http.request({ hostname: 'localhost', port, path: '/' }, res => {
+        const req = http.request({ hostname: 'localhost', port, path: '/' }, (res) => {
           let data = '';
-          res.on('data', c => { data += c; });
-          res.on('end', () => resolve({ status: res.statusCode, body: data, headers: res.headers }));
+          res.on('data', (c) => {
+            data += c;
+          });
+          res.on('end', () =>
+            resolve({ status: res.statusCode, body: data, headers: res.headers }),
+          );
         });
         req.on('error', reject);
         req.end();

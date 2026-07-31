@@ -9,17 +9,22 @@ const SCRUBBED_HEADERS = ['authorization', 'x-api-key', 'x-goog-api-key'];
 // Header-based upstream detection: route by provider-specific request headers.
 // Paths pass through unchanged — the proxy never rewrites URLs.
 export const UPSTREAM_RULES = [
-  { match: (h) => !!h['anthropic-version'],                       host: 'api.anthropic.com', port: 443, tls: true },
-  { match: (h) => !!h['x-goog-api-key'] || !!h['x-goog-api-client'], host: 'cloudcode-pa.googleapis.com', port: 443, tls: true },
-  { match: () => true,                                             host: 'api.openai.com', port: 443, tls: true }, // default fallback
+  { match: (h) => !!h['anthropic-version'], host: 'api.anthropic.com', port: 443, tls: true },
+  {
+    match: (h) => !!h['x-goog-api-key'] || !!h['x-goog-api-client'],
+    host: 'cloudcode-pa.googleapis.com',
+    port: 443,
+    tls: true,
+  },
+  { match: () => true, host: 'api.openai.com', port: 443, tls: true }, // default fallback
 ];
 
 // Legacy path-prefix routing for backward compat with running sessions
 // that still have ANTHROPIC_BASE_URL=http://localhost:PORT/anthropic in their env.
 export const LEGACY_PREFIXES = {
   '/anthropic': { host: 'api.anthropic.com', port: 443, tls: true },
-  '/openai':    { host: 'api.openai.com', port: 443, tls: true },
-  '/google':    { host: 'cloudcode-pa.googleapis.com', port: 443, tls: true },
+  '/openai': { host: 'api.openai.com', port: 443, tls: true },
+  '/google': { host: 'cloudcode-pa.googleapis.com', port: 443, tls: true },
 };
 
 function scrubHeaders(headers) {
@@ -30,8 +35,17 @@ function scrubHeaders(headers) {
   return scrubbed;
 }
 
+// biome-ignore lint/suspicious/noShadowRestrictedNames: names the proxy server class after its domain concept, not the global.
 export class Proxy {
-  constructor({ port = 8080, onCapture = () => {}, upstreamRules = UPSTREAM_RULES, legacyPrefixes = LEGACY_PREFIXES, upstreamTimeout = 0, maxCaptureSize = Infinity, verbose = false } = {}) {
+  constructor({
+    port = 8080,
+    onCapture = () => {},
+    upstreamRules = UPSTREAM_RULES,
+    legacyPrefixes = LEGACY_PREFIXES,
+    upstreamTimeout = 0,
+    maxCaptureSize = Infinity,
+    verbose = false,
+  } = {}) {
     this._configPort = port;
     this.port = null;
     this.onCapture = onCapture;
@@ -56,10 +70,15 @@ export class Proxy {
     const prefixMatch = this._legacyPrefixEntries.find(([prefix]) => req.url.startsWith(prefix));
     if (prefixMatch) {
       const [prefix, upstream] = prefixMatch;
-      return { host: upstream.host, port: upstream.port, tls: upstream.tls, path: req.url.slice(prefix.length) || '/' };
+      return {
+        host: upstream.host,
+        port: upstream.port,
+        tls: upstream.tls,
+        path: req.url.slice(prefix.length) || '/',
+      };
     }
     // Primary: route by provider-specific headers, paths unchanged
-    const rule = this._upstreamRules.find(r => r.match(req.headers));
+    const rule = this._upstreamRules.find((r) => r.match(req.headers));
     if (!rule) return null;
     return { host: rule.host, port: rule.port, tls: rule.tls, path: req.url };
   }
@@ -72,65 +91,73 @@ export class Proxy {
     // WebSocket proxy: forward upgrade requests to upstream, then pipe sockets
     this._server.on('upgrade', (req, socket, head) => {
       const route = this._resolveRoute(req);
-      if (!route) { socket.destroy(); return; }
+      if (!route) {
+        socket.destroy();
+        return;
+      }
       const { host: targetHost, port: targetPort, tls: useTls, path: forwardPath } = route;
 
       if (this._verbose) {
         console.log(`[proxy] WS ${forwardPath} → ${targetHost} (upgrade)`);
       }
 
-      const upstreamSocket = (useTls ? tls : net).connect({
-        host: targetHost,
-        port: targetPort,
-        ...(useTls ? { servername: targetHost, ALPNProtocols: ['http/1.1'] } : {}),
-      }, () => {
-        const headers = { ...req.headers, host: targetHost };
-        delete headers['x-forwarded-host'];
-        delete headers['x-target-protocol'];
+      const upstreamSocket = (useTls ? tls : net).connect(
+        {
+          host: targetHost,
+          port: targetPort,
+          ...(useTls ? { servername: targetHost, ALPNProtocols: ['http/1.1'] } : {}),
+        },
+        () => {
+          const headers = { ...req.headers, host: targetHost };
+          delete headers['x-forwarded-host'];
+          delete headers['x-target-protocol'];
 
-        let request = `GET ${forwardPath} HTTP/1.1\r\n`;
-        for (const [key, val] of Object.entries(headers)) {
-          if (Array.isArray(val)) {
-            for (const v of val) request += `${key}: ${v}\r\n`;
-          } else {
-            request += `${key}: ${val}\r\n`;
+          let request = `GET ${forwardPath} HTTP/1.1\r\n`;
+          for (const [key, val] of Object.entries(headers)) {
+            if (Array.isArray(val)) {
+              for (const v of val) request += `${key}: ${v}\r\n`;
+            } else {
+              request += `${key}: ${val}\r\n`;
+            }
           }
-        }
-        request += '\r\n';
+          request += '\r\n';
 
-        upstreamSocket.write(request);
-        if (head.length) upstreamSocket.write(head);
+          upstreamSocket.write(request);
+          if (head.length) upstreamSocket.write(head);
 
-        // Wait for the upstream HTTP response (101 Switching Protocols),
-        // forward it to the client, then pipe the raw sockets
-        let responseBuffer = Buffer.alloc(0);
-        const onData = (chunk) => {
-          responseBuffer = Buffer.concat([responseBuffer, chunk]);
-          const headerEnd = responseBuffer.indexOf('\r\n\r\n');
-          if (headerEnd === -1) return; // haven't received full headers yet
+          // Wait for the upstream HTTP response (101 Switching Protocols),
+          // forward it to the client, then pipe the raw sockets
+          let responseBuffer = Buffer.alloc(0);
+          const onData = (chunk) => {
+            responseBuffer = Buffer.concat([responseBuffer, chunk]);
+            const headerEnd = responseBuffer.indexOf('\r\n\r\n');
+            if (headerEnd === -1) return; // haven't received full headers yet
 
-          upstreamSocket.removeListener('data', onData);
+            upstreamSocket.removeListener('data', onData);
 
-          if (this._verbose) {
-            const statusLine = responseBuffer.toString('utf8', 0, Math.min(headerEnd, 200));
-            console.log(`[proxy] WS upstream response: ${statusLine.split('\r\n')[0]}`);
-          }
+            if (this._verbose) {
+              const statusLine = responseBuffer.toString('utf8', 0, Math.min(headerEnd, 200));
+              console.log(`[proxy] WS upstream response: ${statusLine.split('\r\n')[0]}`);
+            }
 
-          // Forward the full HTTP response (headers + any extra data after \r\n\r\n)
-          socket.write(responseBuffer);
+            // Forward the full HTTP response (headers + any extra data after \r\n\r\n)
+            socket.write(responseBuffer);
 
-          // Now pipe bidirectionally
-          socket.pipe(upstreamSocket);
-          upstreamSocket.pipe(socket);
-        };
-        upstreamSocket.on('data', onData);
-      });
+            // Now pipe bidirectionally
+            socket.pipe(upstreamSocket);
+            upstreamSocket.pipe(socket);
+          };
+          upstreamSocket.on('data', onData);
+        },
+      );
 
       upstreamSocket.on('error', (err) => {
         if (this._verbose) console.error(`[proxy] WS upstream error: ${err.message}`);
         if (!socket.destroyed) socket.destroy();
       });
-      socket.on('error', () => { if (!upstreamSocket.destroyed) upstreamSocket.destroy(); });
+      socket.on('error', () => {
+        if (!upstreamSocket.destroyed) upstreamSocket.destroy();
+      });
     });
 
     await new Promise((resolve, reject) => {
@@ -170,7 +197,9 @@ export class Proxy {
     });
 
     const requestChunks = [];
-    req.on('data', chunk => { requestChunks.push(chunk); });
+    req.on('data', (chunk) => {
+      requestChunks.push(chunk);
+    });
     req.on('end', () => {
       const requestBody = Buffer.concat(requestChunks);
       this._forwardRequest(req, requestBody, res);
@@ -191,7 +220,7 @@ export class Proxy {
     // Clean up any proxy-hint headers before forwarding
     delete forwardHeaders['x-forwarded-host'];
     delete forwardHeaders['x-target-protocol'];
-    forwardHeaders['host'] = targetHost;
+    forwardHeaders.host = targetHost;
 
     const options = {
       hostname: targetHost,
@@ -241,7 +270,9 @@ export class Proxy {
 
       // Pipe raw bytes directly to client (preserves gzip/br encoding)
       if (this._verbose) {
-        console.log(`[proxy] ${req.method} ${forwardPath} → ${targetHost} ${upstreamRes.statusCode}`);
+        console.log(
+          `[proxy] ${req.method} ${forwardPath} → ${targetHost} ${upstreamRes.statusCode}`,
+        );
       } else if (upstreamRes.statusCode >= 400) {
         console.warn(`[proxy] upstream ${upstreamRes.statusCode} ${req.method} ${forwardPath}`);
       }
@@ -252,13 +283,15 @@ export class Proxy {
       const chunks = [];
       let captureSize = 0;
       let captureSkipped = false;
-      upstreamRes.on('data', chunk => {
+      upstreamRes.on('data', (chunk) => {
         if (captureSkipped) return;
         captureSize += chunk.length;
         if (captureSize > this._maxCaptureSize) {
           captureSkipped = true;
           chunks.length = 0; // free accumulated memory
-          console.warn(`[proxy] capture skipped: response exceeds ${this._maxCaptureSize} bytes (path=${forwardPath})`);
+          console.warn(
+            `[proxy] capture skipped: response exceeds ${this._maxCaptureSize} bytes (path=${forwardPath})`,
+          );
           return;
         }
         chunks.push(chunk);
@@ -269,10 +302,14 @@ export class Proxy {
 
         const rawBuffer = Buffer.concat(chunks);
         const encoding = upstreamRes.headers['content-encoding'];
-        const decode = encoding === 'gzip' ? zlib.gunzip
-          : encoding === 'br' ? zlib.brotliDecompress
-          : encoding === 'deflate' ? zlib.inflate
-          : null;
+        const decode =
+          encoding === 'gzip'
+            ? zlib.gunzip
+            : encoding === 'br'
+              ? zlib.brotliDecompress
+              : encoding === 'deflate'
+                ? zlib.inflate
+                : null;
 
         // WHY: onCapture runs after response piping completes. If it throws
         // synchronously → uncaughtException. If it returns a rejected promise →
@@ -282,18 +319,22 @@ export class Proxy {
         // Capture is best-effort — log, don't crash.
         const emitCapture = (body) => {
           setImmediate(() => {
-            Promise.resolve().then(() => this.onCapture({
-              timestamp,
-              host: targetHost,
-              path: forwardPath,
-              method: req.method,
-              requestHeaders: scrubbedHeaders,
-              rawRequest: scrubbedRequestBody,
-              rawResponse: body,
-              statusCode: upstreamRes.statusCode,
-            })).catch((err) => {
-              console.error('[proxy] capture error:', err.message ?? err);
-            });
+            Promise.resolve()
+              .then(() =>
+                this.onCapture({
+                  timestamp,
+                  host: targetHost,
+                  path: forwardPath,
+                  method: req.method,
+                  requestHeaders: scrubbedHeaders,
+                  rawRequest: scrubbedRequestBody,
+                  rawResponse: body,
+                  statusCode: upstreamRes.statusCode,
+                }),
+              )
+              .catch((err) => {
+                console.error('[proxy] capture error:', err.message ?? err);
+              });
           });
         };
 
@@ -304,7 +345,9 @@ export class Proxy {
           // the DB is worse than no capture. Skip capture entirely on failure.
           decode(rawBuffer, (err, decoded) => {
             if (err) {
-              console.error(`[proxy] decompression failed: ${err.message} encoding=${encoding} path=${forwardPath} size=${rawBuffer.length}`);
+              console.error(
+                `[proxy] decompression failed: ${err.message} encoding=${encoding} path=${forwardPath} size=${rawBuffer.length}`,
+              );
               return;
             }
             emitCapture(decoded.toString());

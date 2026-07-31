@@ -1,5 +1,5 @@
-import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
 import { buildClassifier, CLASSIFICATION_PROMPT } from '../src/classifier/index.js';
 
 describe('CLASSIFICATION_PROMPT', () => {
@@ -14,8 +14,15 @@ describe('CLASSIFICATION_PROMPT', () => {
 
   it('includes all flag types', () => {
     const types = [
-      'decision', 'assumption', 'architecture', 'pattern',
-      'dependency', 'tradeoff', 'constraint', 'workaround', 'risk',
+      'decision',
+      'assumption',
+      'architecture',
+      'pattern',
+      'dependency',
+      'tradeoff',
+      'constraint',
+      'workaround',
+      'risk',
     ];
     for (const type of types) {
       assert.ok(CLASSIFICATION_PROMPT.includes(type), `prompt should mention flag type: ${type}`);
@@ -25,7 +32,11 @@ describe('CLASSIFICATION_PROMPT', () => {
 
 describe('buildClassifier', () => {
   it('returns a function', () => {
-    const classifier = buildClassifier({ provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' });
+    const classifier = buildClassifier({
+      provider: 'anthropic',
+      model: 'claude-haiku-4-5-20251001',
+      base_url: '',
+    });
     assert.equal(typeof classifier, 'function');
   });
 
@@ -34,16 +45,22 @@ describe('buildClassifier', () => {
     const mockFetch = async () => ({
       ok: true,
       json: async () => ({
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            response_summary: 'Agent decided to use JWT for authentication',
-            flags: [
-              { type: 'decision', content: 'Use JWT over session cookies', confidence: 0.95 },
-              { type: 'assumption', content: 'Stateless architecture is preferred', confidence: 0.80 },
-            ],
-          }),
-        }],
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              response_summary: 'Agent decided to use JWT for authentication',
+              flags: [
+                { type: 'decision', content: 'Use JWT over session cookies', confidence: 0.95 },
+                {
+                  type: 'assumption',
+                  content: 'Stateless architecture is preferred',
+                  confidence: 0.8,
+                },
+              ],
+            }),
+          },
+        ],
       }),
     });
 
@@ -60,15 +77,15 @@ describe('buildClassifier', () => {
     const mockFetch = async () => ({
       ok: true,
       json: async () => ({
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            response_summary: 'Agent chose JWT for auth',
-            flags: [
-              { type: 'decision', content: 'Use JWT', confidence: 0.95 },
-            ],
-          }),
-        }],
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              response_summary: 'Agent chose JWT for auth',
+              flags: [{ type: 'decision', content: 'Use JWT', confidence: 0.95 }],
+            }),
+          },
+        ],
       }),
     });
 
@@ -88,13 +105,15 @@ describe('buildClassifier', () => {
     const mockFetch = async () => ({
       ok: true,
       json: async () => ({
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            response_summary: 'Agent listed some files',
-            flags: [],
-          }),
-        }],
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              response_summary: 'Agent listed some files',
+              flags: [],
+            }),
+          },
+        ],
       }),
     });
 
@@ -131,7 +150,9 @@ describe('buildClassifier', () => {
       capturedUrl = url;
       return {
         ok: true,
-        json: async () => ({ content: [{ type: 'text', text: '{"response_summary":"ok","flags":[]}' }] }),
+        json: async () => ({
+          content: [{ type: 'text', text: '{"response_summary":"ok","flags":[]}' }],
+        }),
       };
     };
 
@@ -141,7 +162,10 @@ describe('buildClassifier', () => {
     );
 
     return classifier('test').then(() => {
-      assert.ok(capturedUrl.startsWith('http://localhost:11434'), `expected ollama URL, got ${capturedUrl}`);
+      assert.ok(
+        capturedUrl.startsWith('http://localhost:11434'),
+        `expected ollama URL, got ${capturedUrl}`,
+      );
     });
   });
 });

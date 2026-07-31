@@ -2,12 +2,12 @@
 // Verifies that when a log file would exceed the size threshold,
 // it is rotated (old content moved to .1) and a new log is started.
 
-import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { rotateLogIfNeeded, MAX_LOG_SIZE } from '../src/cli/index.js';
+import { describe, it } from 'node:test';
+import { rotateLogIfNeeded } from '../src/cli/index.js';
 
 describe('Log file rotation', () => {
   it('rotates log file when size exceeds cap', async () => {
@@ -17,7 +17,7 @@ describe('Log file rotation', () => {
 
     try {
       // Create initial log content (500 bytes)
-      const initialContent = 'x'.repeat(500) + '\n';
+      const initialContent = `${'x'.repeat(500)}\n`;
       fs.writeFileSync(logPath, initialContent);
       const initialStats = fs.statSync(logPath);
       assert.equal(initialStats.size, 501);
@@ -30,7 +30,11 @@ describe('Log file rotation', () => {
       // at it keeps working.
       assert.ok(fs.existsSync(rotatedPath), 'rotated file should exist at .1');
       assert.ok(fs.existsSync(logPath), 'original log file should still exist');
-      assert.equal(fs.statSync(logPath).size, 0, 'original log file should be truncated to 0 bytes');
+      assert.equal(
+        fs.statSync(logPath).size,
+        0,
+        'original log file should be truncated to 0 bytes',
+      );
 
       // Verify rotated file has original content
       const rotatedContent = fs.readFileSync(rotatedPath, 'utf8');
@@ -47,7 +51,7 @@ describe('Log file rotation', () => {
 
     try {
       // Create log content (100 bytes, well below cap)
-      const content = 'y'.repeat(100) + '\n';
+      const content = `${'y'.repeat(100)}\n`;
       fs.writeFileSync(logPath, content);
 
       // Try to rotate with a high cap (higher than content)
@@ -88,7 +92,7 @@ describe('Log file rotation', () => {
       fs.writeFileSync(rotatedPath, 'old rotated content\n');
 
       // Create new log content
-      const newContent = 'z'.repeat(500) + '\n';
+      const newContent = `${'z'.repeat(500)}\n`;
       fs.writeFileSync(logPath, newContent);
 
       // Rotate with small cap

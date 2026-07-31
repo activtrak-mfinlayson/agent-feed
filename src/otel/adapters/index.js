@@ -2,7 +2,7 @@
 // keyed off vendor namespace prefix on the event name.
 
 import { claudeAdapter } from './claude.js';
-import { codexAdapter }  from './codex.js';
+import { codexAdapter } from './codex.js';
 import { geminiAdapter } from './gemini.js';
 
 const ADAPTERS = [claudeAdapter, codexAdapter, geminiAdapter];
@@ -15,11 +15,11 @@ export function getAdapter(record) {
 }
 
 export function adapterByVendor(vendor) {
-  return ADAPTERS.find(a => a.vendor === vendor) ?? null;
+  return ADAPTERS.find((a) => a.vendor === vendor) ?? null;
 }
 
 export const VENDORS = Object.freeze({
   CLAUDE: 'claude',
-  CODEX:  'codex',
+  CODEX: 'codex',
   GEMINI: 'gemini',
 });

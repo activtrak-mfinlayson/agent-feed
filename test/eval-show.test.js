@@ -1,10 +1,10 @@
-import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { after, before, describe, it } from 'node:test';
+import { formatEvalExamples, getEvalExamples } from '../src/eval.js';
 import { Database } from '../src/storage/database.js';
-import { runClassifierEval, getEvalExamples, formatEvalReport, formatEvalExamples } from '../src/eval.js';
 
 describe('getEvalExamples', () => {
   let tmpDir, db, mockClassifier;
@@ -17,20 +17,40 @@ describe('getEvalExamples', () => {
     // Seed labeled flags with varied outcomes
     const cases = [
       // true positive: classifier finds it, reviewer accepted it
-      { type: 'decision',   status: 'accepted',       raw: 'I decided to use JWT for stateless auth', predictedType: 'decision' },
+      {
+        type: 'decision',
+        status: 'accepted',
+        raw: 'I decided to use JWT for stateless auth',
+        predictedType: 'decision',
+      },
       // false negative: classifier misses it, reviewer accepted it
-      { type: 'assumption', status: 'accepted',       raw: 'Assuming postgres is available on port 5432', predictedType: null },
+      {
+        type: 'assumption',
+        status: 'accepted',
+        raw: 'Assuming postgres is available on port 5432',
+        predictedType: null,
+      },
       // false positive: classifier flags it, reviewer marked false_positive
-      { type: 'risk',       status: 'false_positive', raw: 'Here is the list of files in the directory', predictedType: 'risk' },
+      {
+        type: 'risk',
+        status: 'false_positive',
+        raw: 'Here is the list of files in the directory',
+        predictedType: 'risk',
+      },
       // true negative: classifier correctly does not flag it
-      { type: 'workaround', status: 'false_positive', raw: 'The cat sat on the mat', predictedType: null },
+      {
+        type: 'workaround',
+        status: 'false_positive',
+        raw: 'The cat sat on the mat',
+        predictedType: null,
+      },
     ];
 
     for (const c of cases) {
       const recordId = await db.insertRecord({
         timestamp: new Date().toISOString(),
         agent: 'claude-code',
-        session_id: 'show-sess-' + Math.random(),
+        session_id: `show-sess-${Math.random()}`,
         turn_index: 1,
         working_directory: '/tmp',
         response_summary: 'test',
@@ -68,7 +88,7 @@ describe('getEvalExamples', () => {
     assert.ok(Array.isArray(examples.missed));
     const missed = examples.missed;
     // assumption flag was accepted but classifier missed it
-    assert.ok(missed.some(m => m.type === 'assumption'));
+    assert.ok(missed.some((m) => m.type === 'assumption'));
     // each missed entry has content and raw_response snippet
     assert.ok(missed[0].content);
     assert.ok(missed[0].raw_snippet);
@@ -80,7 +100,7 @@ describe('getEvalExamples', () => {
     assert.ok(Array.isArray(examples.false_positives));
     const fp = examples.false_positives;
     // risk flag on benign content was a false positive
-    assert.ok(fp.some(f => f.type === 'risk'));
+    assert.ok(fp.some((f) => f.type === 'risk'));
     assert.ok(fp[0].content);
     assert.ok(fp[0].raw_snippet);
   });
@@ -102,7 +122,11 @@ describe('formatEvalExamples', () => {
       false_negative_count: 2,
       false_positive_count: 2,
       missed: [
-        { type: 'assumption', content: 'Assuming docker is available', raw_snippet: 'Assuming docker is available on port 5432' },
+        {
+          type: 'assumption',
+          content: 'Assuming docker is available',
+          raw_snippet: 'Assuming docker is available on port 5432',
+        },
       ],
       false_positives: [
         { type: 'risk', content: 'listed files', raw_snippet: 'Here is the list of files' },
