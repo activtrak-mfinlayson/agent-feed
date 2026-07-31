@@ -167,6 +167,68 @@ describe('Database', () => {
     });
   });
 
+  describe('session digests', () => {
+    it('getSessionDigest returns null for a session with no saved digest', async () => {
+      const digest = await db.getSessionDigest('sess-digest-none');
+      assert.equal(digest, null);
+    });
+
+    it('round-trips content through saveSessionDigest/getSessionDigest', async () => {
+      const sessionId = 'sess-digest-roundtrip';
+      const content = {
+        highlights: [
+          { summary: 'Chose JWT over sessions', flag_ids: ['flag-a', 'flag-b'] },
+          { summary: 'Assumed postgres is available', flag_ids: ['flag-c'] },
+        ],
+      };
+
+      await db.saveSessionDigest(sessionId, {
+        generated_at: '2026-07-29T00:00:00.000Z',
+        flag_count_at_generation: 12,
+        content,
+        model: 'claude-sonnet-4-6',
+      });
+
+      const digest = await db.getSessionDigest(sessionId);
+      assert.ok(digest);
+      assert.equal(digest.session_id, sessionId);
+      assert.equal(digest.generated_at, '2026-07-29T00:00:00.000Z');
+      assert.equal(digest.flag_count_at_generation, 12);
+      assert.equal(digest.model, 'claude-sonnet-4-6');
+      assert.deepEqual(digest.content, content);
+    });
+
+    it('saving a digest twice for the same session upserts rather than duplicating', async () => {
+      const sessionId = 'sess-digest-upsert';
+
+      await db.saveSessionDigest(sessionId, {
+        generated_at: '2026-07-29T00:00:00.000Z',
+        flag_count_at_generation: 5,
+        content: { highlights: [{ summary: 'first pass', flag_ids: ['x'] }] },
+        model: 'claude-sonnet-4-6',
+      });
+      await db.saveSessionDigest(sessionId, {
+        generated_at: '2026-07-29T01:00:00.000Z',
+        flag_count_at_generation: 9,
+        content: { highlights: [{ summary: 'second pass', flag_ids: ['y', 'z'] }] },
+        model: 'claude-sonnet-4-7',
+      });
+
+      const digest = await db.getSessionDigest(sessionId);
+      assert.equal(digest.generated_at, '2026-07-29T01:00:00.000Z');
+      assert.equal(digest.flag_count_at_generation, 9);
+      assert.equal(digest.model, 'claude-sonnet-4-7');
+      assert.deepEqual(digest.content, {
+        highlights: [{ summary: 'second pass', flag_ids: ['y', 'z'] }],
+      });
+
+      const rows = db.db
+        .prepare('SELECT COUNT(*) as count FROM session_digests WHERE session_id = ?')
+        .get(sessionId);
+      assert.equal(rows.count, 1, 'upsert must not create a duplicate row');
+    });
+  });
+
   describe('getDbSizeBytes', () => {
     it('includes WAL and SHM sidecar files in size calculation', async () => {
       // Get size of main .db file alone

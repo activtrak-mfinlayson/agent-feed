@@ -4,6 +4,7 @@ import type {
   Record,
   ReviewStatus,
   Session,
+  SessionDigest,
   ToolDecisionsResponse,
   Trends,
 } from "./types";
@@ -98,4 +99,8 @@ export function fetchHookActivity(sessionId: string): Promise<OtelEvent[]> {
 
 export function fetchMCPHealth(sessionId: string): Promise<OtelEvent[]> {
   return fetchJSON(`/api/sessions/${encodeURIComponent(sessionId)}/mcp`);
+}
+
+export function fetchSessionDigest(sessionId: string): Promise<SessionDigest> {
+  return fetchJSON(`/api/sessions/${encodeURIComponent(sessionId)}/digest`);
 }

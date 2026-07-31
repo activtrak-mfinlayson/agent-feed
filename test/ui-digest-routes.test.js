@@ -1,0 +1,675 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { Database } from '../src/storage/database.js';
+import { createUIServer } from '../src/ui/server.js';
+
+const FLAG_THRESHOLD = 3;
+
+async function buildServer({
+  digestSynthesizer = null,
+  digestConfig = { enabled: true, flag_threshold: FLAG_THRESHOLD },
+} = {}) {
+  const db = new Database(':memory:');
+  await db.init();
+  const server = createUIServer({ db, digestSynthesizer, digestConfig });
+  await server.listen(0);
+  return { db, server, port: server.port };
+}
+
+async function seedSession(db, sessionId, flagCount, timestamp = new Date().toISOString()) {
+  const recordId = await db.insertRecord({
+    timestamp,
+    agent: 'claude-code',
+    session_id: sessionId,
+    turn_index: 1,
+    working_directory: '/tmp/project',
+    response_summary: 'summary',
+    raw_response: JSON.stringify({ content: 'x' }),
+    model: 'claude-sonnet-4-6',
+  });
+  const flagIds = [];
+  for (let i = 0; i < flagCount; i++) {
+    const id = await db.insertFlag({
+      record_id: recordId,
+      type: 'decision',
+      content: `Decision number ${i}`,
+      confidence: 0.9,
+    });
+    flagIds.push(id);
+  }
+  return { recordId, flagIds };
+}
+
+describe('GET /api/sessions/:id/digest', () => {
+  it('triggers synthesis and returns ready when at/above threshold with no prior digest', async () => {
+    const db = new Database(':memory:');
+    await db.init();
+    const { flagIds } = await seedSession(db, 'sess-a', FLAG_THRESHOLD);
+
+    let calls = 0;
+    const server = createUIServer({
+      db,
+      digestSynthesizer: async (flags) => {
+        calls++;
+        assert.equal(flags.length, FLAG_THRESHOLD);
+        return { highlights: [{ summary: 'Several decisions made', flag_ids: [flagIds[0]] }] };
+      },
+      digestConfig: { enabled: true, flag_threshold: FLAG_THRESHOLD },
+    });
+    await server.listen(0);
+    try {
+      const res = await fetch(`http://localhost:${server.port}/api/sessions/sess-a/digest`);
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.status, 'ready');
+      assert.equal(body.highlights.length, 1);
+      assert.equal(body.highlights[0].summary, 'Several decisions made');
+      assert.ok(body.generated_at);
+      assert.ok(body.latest_turn_at);
+      assert.equal(calls, 1);
+
+      const cached = await db.getSessionDigest('sess-a');
+      assert.ok(cached);
+      assert.equal(cached.flag_count_at_generation, FLAG_THRESHOLD);
+    } finally {
+      await server.close();
+      await db.close();
+    }
+  });
+
+  it('returns cached content without invoking the synthesizer when flag count matches', async () => {
+    const db = new Database(':memory:');
+    await db.init();
+    const { flagIds } = await seedSession(db, 'sess-cached', FLAG_THRESHOLD);
+    await db.saveSessionDigest('sess-cached', {
+      generated_at: new Date().toISOString(),
+      flag_count_at_generation: FLAG_THRESHOLD,
+      content: { highlights: [{ summary: 'Cached highlight', flag_ids: [flagIds[0]] }] },
+      model: 'claude-haiku-4-5-20251001',
+    });
+
+    let calls = 0;
+    const server = createUIServer({
+      db,
+      digestSynthesizer: async () => {
+        calls++;
+        return { highlights: [] };
+      },
+      digestConfig: { enabled: true, flag_threshold: FLAG_THRESHOLD },
+    });
+    await server.listen(0);
+    try {
+      const res = await fetch(`http://localhost:${server.port}/api/sessions/sess-cached/digest`);
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.status, 'ready');
+      assert.equal(body.highlights[0].summary, 'Cached highlight');
+      assert.equal(calls, 0, 'synthesizer should not be invoked for a current cache hit');
+    } finally {
+      await server.close();
+      await db.close();
+    }
+  });
+
+  it('regenerates when live flag count has grown since the cached generation', async () => {
+    const db = new Database(':memory:');
+    await db.init();
+    const { flagIds } = await seedSession(db, 'sess-grow', FLAG_THRESHOLD);
+    await db.saveSessionDigest('sess-grow', {
+      generated_at: new Date().toISOString(),
+      flag_count_at_generation: FLAG_THRESHOLD,
+      content: { highlights: [{ summary: 'Stale highlight', flag_ids: [flagIds[0]] }] },
+      model: 'claude-haiku-4-5-20251001',
+    });
+
+    // Add one more flag so the live count no longer matches the cache.
+    const recordId = (await db.getSession('sess-grow'))[0].id;
+    await db.insertFlag({
+      record_id: recordId,
+      type: 'risk',
+      content: 'New risk',
+      confidence: 0.8,
+    });
+
+    let calls = 0;
+    const server = createUIServer({
+      db,
+      digestSynthesizer: async (flags) => {
+        calls++;
+        return { highlights: [{ summary: 'Updated highlight', flag_ids: [flags[0].id] }] };
+      },
+      digestConfig: { enabled: true, flag_threshold: FLAG_THRESHOLD },
+    });
+    await server.listen(0);
+    try {
+      const res = await fetch(`http://localhost:${server.port}/api/sessions/sess-grow/digest`);
+      const body = await res.json();
+      assert.equal(body.status, 'ready');
+      assert.equal(body.highlights[0].summary, 'Updated highlight');
+      assert.equal(calls, 1);
+
+      const cached = await db.getSessionDigest('sess-grow');
+      assert.equal(cached.flag_count_at_generation, FLAG_THRESHOLD + 1);
+    } finally {
+      await server.close();
+      await db.close();
+    }
+  });
+
+  it('returns below_threshold without attempting synthesis', async () => {
+    let calls = 0;
+    const { db, server, port } = await buildServer({
+      digestSynthesizer: async () => {
+        calls++;
+        return { highlights: [] };
+      },
+    });
+    try {
+      await seedSession(db, 'sess-below', FLAG_THRESHOLD - 1);
+      const res = await fetch(`http://localhost:${port}/api/sessions/sess-below/digest`);
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.status, 'below_threshold');
+      assert.equal(calls, 0);
+    } finally {
+      await server.close();
+      await db.close();
+    }
+  });
+
+  it('returns unavailable (200) and writes no cache row when the synthesizer throws', async () => {
+    const { db, server, port } = await buildServer({
+      digestSynthesizer: async () => {
+        throw new Error('boom');
+      },
+    });
+    try {
+      await seedSession(db, 'sess-throw', FLAG_THRESHOLD);
+      const res = await fetch(`http://localhost:${port}/api/sessions/sess-throw/digest`);
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.status, 'unavailable');
+      assert.ok(body.latest_turn_at);
+
+      const cached = await db.getSessionDigest('sess-throw');
+      assert.equal(cached, null);
+    } finally {
+      await server.close();
+      await db.close();
+    }
+  });
+
+  it('returns unavailable (200) when the synthesizer returns a failure result', async () => {
+    const { db, server, port } = await buildServer({
+      digestSynthesizer: async () => ({ highlights: [] }),
+    });
+    try {
+      await seedSession(db, 'sess-empty', FLAG_THRESHOLD);
+      const res = await fetch(`http://localhost:${port}/api/sessions/sess-empty/digest`);
+      const body = await res.json();
+      assert.equal(body.status, 'unavailable');
+
+      const cached = await db.getSessionDigest('sess-empty');
+      assert.equal(cached, null);
+    } finally {
+      await server.close();
+      await db.close();
+    }
+  });
+
+  it('drops highlights referencing unknown flag ids; treats zero survivors as unavailable', async () => {
+    const { db, server, port } = await buildServer({
+      digestSynthesizer: async () => ({
+        highlights: [{ summary: 'Hallucinated highlight', flag_ids: ['does-not-exist'] }],
+      }),
+    });
+    try {
+      await seedSession(db, 'sess-hallucinate', FLAG_THRESHOLD);
+      const res = await fetch(`http://localhost:${port}/api/sessions/sess-hallucinate/digest`);
+      const body = await res.json();
+      assert.equal(body.status, 'unavailable');
+
+      const cached = await db.getSessionDigest('sess-hallucinate');
+      assert.equal(cached, null);
+    } finally {
+      await server.close();
+      await db.close();
+    }
+  });
+
+  it('latest_turn_at reflects the max timestamp across multiple records in a session', async () => {
+    const { db, server, port } = await buildServer();
+    try {
+      const olderTimestamp = '2026-01-01T00:00:00.000Z';
+      const newerTimestamp = '2026-01-02T00:00:00.000Z';
+      // Insert the older record first, then the newer one, so the reduce's
+      // multi-record max comparison is actually exercised (every other test
+      // seeds exactly one record per session).
+      await seedSession(db, 'sess-multi-record', 1, olderTimestamp);
+      await seedSession(db, 'sess-multi-record', 1, newerTimestamp);
+
+      const res = await fetch(`http://localhost:${port}/api/sessions/sess-multi-record/digest`);
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.latest_turn_at, newerTimestamp);
+    } finally {
+      await server.close();
+      await db.close();
+    }
+  });
+
+  it('returns 404 for an unknown session_id', async () => {
+    const { db, server, port } = await buildServer();
+    try {
+      const res = await fetch(`http://localhost:${port}/api/sessions/nonexistent-session/digest`);
+      assert.equal(res.status, 404);
+      const body = await res.json();
+      assert.ok(body.error);
+    } finally {
+      await server.close();
+      await db.close();
+    }
+  });
+
+  it('rejects a cross-site request with 403 before reading flag counts or attempting synthesis', async () => {
+    let calls = 0;
+    const { db, server, port } = await buildServer({
+      digestSynthesizer: async () => {
+        calls++;
+        return { highlights: [] };
+      },
+    });
+    try {
+      await seedSession(db, 'sess-cross-site', FLAG_THRESHOLD);
+      const res = await fetch(`http://localhost:${port}/api/sessions/sess-cross-site/digest`, {
+        headers: { 'Sec-Fetch-Site': 'cross-site' },
+      });
+      assert.equal(res.status, 403);
+      assert.equal(calls, 0);
+    } finally {
+      await server.close();
+      await db.close();
+    }
+  });
+
+  it('allows a request with no Sec-Fetch-Site header (curl/tests/CLI)', async () => {
+    const { db, server, port } = await buildServer({
+      digestSynthesizer: async () => ({ highlights: [] }),
+    });
+    try {
+      await seedSession(db, 'sess-no-header', FLAG_THRESHOLD - 1);
+      const res = await fetch(`http://localhost:${port}/api/sessions/sess-no-header/digest`);
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.status, 'below_threshold');
+    } finally {
+      await server.close();
+      await db.close();
+    }
+  });
+
+  it('defaults to below_threshold (self-hiding) when no digestSynthesizer is provided (backward compat)', async () => {
+    const db = new Database(':memory:');
+    await db.init();
+    const server = createUIServer({ db }); // no digestSynthesizer, no digestConfig — legacy call site
+    await server.listen(0);
+    try {
+      // Well above any reasonable flag_threshold — proves the disabled check
+      // self-hides regardless of live flag count rather than surfacing the
+      // permanent broken "unavailable" box (fix: digest.enabled=false must
+      // behave exactly like a below-threshold session, not a distinct
+      // unavailable-with-a-dead-retry-button contract).
+      await seedSession(db, 'sess-legacy', FLAG_THRESHOLD + 10);
+      const res = await fetch(`http://localhost:${server.port}/api/sessions/sess-legacy/digest`);
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.status, 'below_threshold');
+      assert.ok(body.latest_turn_at);
+    } finally {
+      await server.close();
+      await db.close();
+    }
+  });
+
+  it('disabled digest self-hides even above threshold, without invoking the full record+flag fetch', async () => {
+    const db = new Database(':memory:');
+    await db.init();
+    let fullFetchCalls = 0;
+    const originalGetRecordsWithFlags = db.getRecordsWithFlags.bind(db);
+    db.getRecordsWithFlags = async (...args) => {
+      fullFetchCalls++;
+      return originalGetRecordsWithFlags(...args);
+    };
+    // enabled: false (not just "no synthesizer") to cover the explicit config
+    // path, distinct from the backward-compat-no-synthesizer test above.
+    const server = createUIServer({
+      db,
+      digestConfig: { enabled: false, flag_threshold: FLAG_THRESHOLD },
+    });
+    await server.listen(0);
+    try {
+      await seedSession(db, 'sess-disabled', FLAG_THRESHOLD + 10);
+      const res = await fetch(`http://localhost:${server.port}/api/sessions/sess-disabled/digest`);
+      const body = await res.json();
+      assert.equal(body.status, 'below_threshold');
+      assert.equal(
+        fullFetchCalls,
+        0,
+        'disabled digest should never call the full getRecordsWithFlags fetch',
+      );
+    } finally {
+      await server.close();
+      await db.close();
+    }
+  });
+
+  it('does not call the full record+flag fetch on a cache hit', async () => {
+    const { db, server, port } = await buildServer({
+      digestSynthesizer: async () => {
+        throw new Error('should not be called on a cache hit');
+      },
+    });
+    let fullFetchCalls = 0;
+    const originalGetRecordsWithFlags = db.getRecordsWithFlags.bind(db);
+    db.getRecordsWithFlags = async (...args) => {
+      fullFetchCalls++;
+      return originalGetRecordsWithFlags(...args);
+    };
+    try {
+      const { flagIds } = await seedSession(db, 'sess-cache-hit-fetch', FLAG_THRESHOLD);
+      await db.saveSessionDigest('sess-cache-hit-fetch', {
+        generated_at: new Date().toISOString(),
+        flag_count_at_generation: FLAG_THRESHOLD,
+        content: { highlights: [{ summary: 'Cached highlight', flag_ids: [flagIds[0]] }] },
+        model: 'claude-haiku-4-5-20251001',
+      });
+
+      const res = await fetch(`http://localhost:${port}/api/sessions/sess-cache-hit-fetch/digest`);
+      const body = await res.json();
+      assert.equal(body.status, 'ready');
+      assert.equal(
+        fullFetchCalls,
+        0,
+        'a valid cache hit should be served from the lightweight summary query alone',
+      );
+    } finally {
+      await server.close();
+      await db.close();
+    }
+  });
+
+  it('does not call the full record+flag fetch for a below-threshold session', async () => {
+    const { db, server, port } = await buildServer({
+      digestSynthesizer: async () => ({ highlights: [] }),
+    });
+    let fullFetchCalls = 0;
+    const originalGetRecordsWithFlags = db.getRecordsWithFlags.bind(db);
+    db.getRecordsWithFlags = async (...args) => {
+      fullFetchCalls++;
+      return originalGetRecordsWithFlags(...args);
+    };
+    try {
+      await seedSession(db, 'sess-below-fetch', FLAG_THRESHOLD - 1);
+      const res = await fetch(`http://localhost:${port}/api/sessions/sess-below-fetch/digest`);
+      const body = await res.json();
+      assert.equal(body.status, 'below_threshold');
+      assert.equal(fullFetchCalls, 0);
+    } finally {
+      await server.close();
+      await db.close();
+    }
+  });
+
+  it('cools down after a synthesis failure: a second poll within the cooldown window does not re-invoke the synthesizer', async () => {
+    let calls = 0;
+    const { db, server, port } = await buildServer({
+      digestSynthesizer: async () => {
+        calls++;
+        throw new Error('provider is down');
+      },
+    });
+    try {
+      await seedSession(db, 'sess-cooldown', FLAG_THRESHOLD);
+
+      const res1 = await fetch(`http://localhost:${port}/api/sessions/sess-cooldown/digest`);
+      const body1 = await res1.json();
+      assert.equal(body1.status, 'unavailable');
+      assert.equal(calls, 1);
+
+      // Immediately poll again, simulating the frontend's ~20s interval —
+      // the synthesizer must not be invoked a second time while the failure
+      // is still within the cooldown window.
+      const res2 = await fetch(`http://localhost:${port}/api/sessions/sess-cooldown/digest`);
+      const body2 = await res2.json();
+      assert.equal(body2.status, 'unavailable');
+      assert.equal(
+        calls,
+        1,
+        'synthesizer should not be re-invoked within the failure cooldown window',
+      );
+    } finally {
+      await server.close();
+      await db.close();
+    }
+  });
+
+  it('cools down after a zero-valid-highlights result too (not just a thrown error)', async () => {
+    let calls = 0;
+    const { db, server, port } = await buildServer({
+      digestSynthesizer: async () => {
+        calls++;
+        return { highlights: [] };
+      },
+    });
+    try {
+      await seedSession(db, 'sess-cooldown-empty', FLAG_THRESHOLD);
+
+      const res1 = await fetch(`http://localhost:${port}/api/sessions/sess-cooldown-empty/digest`);
+      assert.equal((await res1.json()).status, 'unavailable');
+      assert.equal(calls, 1);
+
+      const res2 = await fetch(`http://localhost:${port}/api/sessions/sess-cooldown-empty/digest`);
+      assert.equal((await res2.json()).status, 'unavailable');
+      assert.equal(
+        calls,
+        1,
+        'a zero-highlight result should also start a cooldown, suppressing the next poll',
+      );
+    } finally {
+      await server.close();
+      await db.close();
+    }
+  });
+
+  it('clears the failure cooldown on success (digestRecentFailures.delete), then establishes a fresh cooldown on a later failure', async (t) => {
+    // Uses node:test's built-in Date mock so we can advance past
+    // DIGEST_FAILURE_COOLDOWN_MS (60000ms) between a failing first request
+    // and a succeeding second request, without a real 60-second sleep.
+    t.mock.timers.enable({ apis: ['Date'] });
+
+    // The cooldown map itself isn't exposed by createUIServer, and — because
+    // every path that reaches `.set()`/`.delete()` has already passed the
+    // "is there a live, unexpired entry?" gate — a stale-but-expired entry
+    // left behind by a missing `.delete()` call is indistinguishable from no
+    // entry at all for any *future* request's pass/block outcome (an old
+    // failure timestamp only ever gets staler; only a later failure's
+    // `.set()` can make the gate block again, and that unconditionally
+    // overwrites regardless of whether the prior success deleted the old
+    // entry). So a response-only assertion sequence can't actually catch a
+    // missing `digestRecentFailures.delete(sessionId)` call — we spy on
+    // Map.prototype.delete, scoped to this test's unique session id, to
+    // directly confirm the line executes for the right key.
+    const deleteCallsForSession = [];
+    const originalMapDelete = Map.prototype.delete;
+    Map.prototype.delete = function (key) {
+      if (key === 'sess-cooldown-clear') deleteCallsForSession.push(key);
+      return originalMapDelete.call(this, key);
+    };
+
+    let calls = 0;
+    const { db, server, port } = await buildServer({
+      digestSynthesizer: async (flags) => {
+        calls++;
+        // Fails on the 1st and 3rd calls, succeeds on the 2nd.
+        if (calls === 1 || calls === 3) throw new Error('provider is down');
+        return { highlights: [{ summary: 'Recovered highlight', flag_ids: [flags[0].id] }] };
+      },
+    });
+
+    try {
+      await seedSession(db, 'sess-cooldown-clear', FLAG_THRESHOLD);
+
+      // First request fails and starts a cooldown.
+      const res1 = await fetch(`http://localhost:${port}/api/sessions/sess-cooldown-clear/digest`);
+      assert.equal((await res1.json()).status, 'unavailable');
+      assert.equal(calls, 1);
+      assert.equal(deleteCallsForSession.length, 0, 'no delete on a failed generation');
+
+      // Advance the clock past the cooldown window.
+      t.mock.timers.tick(60_001);
+
+      // Second request is no longer blocked by the cooldown and reaches the
+      // synthesizer, which succeeds this time.
+      const res2 = await fetch(`http://localhost:${port}/api/sessions/sess-cooldown-clear/digest`);
+      const body2 = await res2.json();
+      assert.equal(body2.status, 'ready');
+      assert.equal(calls, 2, 'synthesizer should be invoked once the cooldown has expired');
+      assert.equal(
+        deleteCallsForSession.length,
+        1,
+        'success must call digestRecentFailures.delete(sessionId) for this session',
+      );
+
+      // Add a flag so the live flag count no longer matches the digest we
+      // just cached — this forces the next request to re-evaluate instead
+      // of being served straight from cache, so it actually reaches the
+      // synthesizer (and cooldown check) again.
+      const recordId = (await db.getSession('sess-cooldown-clear'))[0].id;
+      await db.insertFlag({
+        record_id: recordId,
+        type: 'risk',
+        content: 'Another risk',
+        confidence: 0.9,
+      });
+
+      // Third request fails again, starting a brand new cooldown.
+      const res3 = await fetch(`http://localhost:${port}/api/sessions/sess-cooldown-clear/digest`);
+      assert.equal((await res3.json()).status, 'unavailable');
+      assert.equal(calls, 3);
+
+      // Immediately poll again (no time advance) — the fresh cooldown from
+      // the third call's failure must block this without invoking the
+      // synthesizer a fourth time.
+      const res4 = await fetch(`http://localhost:${port}/api/sessions/sess-cooldown-clear/digest`);
+      assert.equal((await res4.json()).status, 'unavailable');
+      assert.equal(
+        calls,
+        3,
+        'the fresh cooldown from the third failure should block immediate re-invocation',
+      );
+    } finally {
+      Map.prototype.delete = originalMapDelete;
+      t.mock.timers.reset();
+      await server.close();
+      await db.close();
+    }
+  });
+
+  it('bypasses the failure cooldown when the live flag count has changed since the failure, even within the 60s window', async () => {
+    let calls = 0;
+    const { db, server, port } = await buildServer({
+      digestSynthesizer: async () => {
+        calls++;
+        throw new Error('provider is down');
+      },
+    });
+    try {
+      await seedSession(db, 'sess-cooldown-flagchange', FLAG_THRESHOLD);
+
+      const res1 = await fetch(
+        `http://localhost:${port}/api/sessions/sess-cooldown-flagchange/digest`,
+      );
+      assert.equal((await res1.json()).status, 'unavailable');
+      assert.equal(calls, 1);
+
+      // A new flag arrives on the still-active session while well within
+      // the 60s cooldown window (no clock advance, no timer mock).
+      const recordId = (await db.getSession('sess-cooldown-flagchange'))[0].id;
+      await db.insertFlag({
+        record_id: recordId,
+        type: 'risk',
+        content: 'Fresh risk',
+        confidence: 0.9,
+      });
+
+      const res2 = await fetch(
+        `http://localhost:${port}/api/sessions/sess-cooldown-flagchange/digest`,
+      );
+      assert.equal((await res2.json()).status, 'unavailable');
+      assert.equal(
+        calls,
+        2,
+        'a flag-count change should bypass the stale cooldown and re-invoke the synthesizer',
+      );
+    } finally {
+      await server.close();
+      await db.close();
+    }
+  });
+
+  it('integration: seeds real flags via insertFlag past threshold and round-trips through real storage methods', async () => {
+    const db = new Database(':memory:');
+    await db.init();
+    await seedSession(db, 'sess-integration', FLAG_THRESHOLD);
+
+    // A real (non-mock-bypassed) digest function that just builds a highlight
+    // referencing all the flags it was given — exercises the actual
+    // read -> generate -> validate -> save round trip through U1's storage
+    // methods and U3's endpoint logic together.
+    const realDigestFn = async (flags) => ({
+      highlights: [
+        { summary: `Session has ${flags.length} decisions`, flag_ids: flags.map((f) => f.id) },
+      ],
+    });
+
+    const server = createUIServer({
+      db,
+      digestSynthesizer: realDigestFn,
+      digestConfig: { enabled: true, flag_threshold: FLAG_THRESHOLD },
+    });
+    await server.listen(0);
+    try {
+      const res1 = await fetch(
+        `http://localhost:${server.port}/api/sessions/sess-integration/digest`,
+      );
+      const body1 = await res1.json();
+      assert.equal(body1.status, 'ready');
+      assert.equal(body1.highlights[0].flag_ids.length, FLAG_THRESHOLD);
+
+      const savedAfterFirst = await db.getSessionDigest('sess-integration');
+      assert.equal(savedAfterFirst.flag_count_at_generation, FLAG_THRESHOLD);
+
+      // Add more flags and confirm the second request regenerates.
+      const recordId = (await db.getSession('sess-integration'))[0].id;
+      await db.insertFlag({
+        record_id: recordId,
+        type: 'risk',
+        content: 'One more risk',
+        confidence: 0.9,
+      });
+
+      const res2 = await fetch(
+        `http://localhost:${server.port}/api/sessions/sess-integration/digest`,
+      );
+      const body2 = await res2.json();
+      assert.equal(body2.status, 'ready');
+      assert.equal(body2.highlights[0].flag_ids.length, FLAG_THRESHOLD + 1);
+
+      const savedAfterSecond = await db.getSessionDigest('sess-integration');
+      assert.equal(savedAfterSecond.flag_count_at_generation, FLAG_THRESHOLD + 1);
+    } finally {
+      await server.close();
+      await db.close();
+    }
+  });
+});

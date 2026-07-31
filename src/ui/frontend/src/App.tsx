@@ -61,6 +61,7 @@ export default function App() {
       <SessionDetail
         sessionId={activeSessionId}
         modelFilter={selectedModel === "all" ? undefined : selectedModel}
+        onClearModelFilter={() => setSelectedModel("all")}
       />
     ) : (
       <EmptyState />

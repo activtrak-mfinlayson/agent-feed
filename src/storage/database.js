@@ -68,6 +68,14 @@ const SCHEMA = `
     attributes TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS session_digests (
+    session_id TEXT PRIMARY KEY,
+    generated_at TEXT NOT NULL,
+    flag_count_at_generation INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    model TEXT
+  );
+
   CREATE INDEX IF NOT EXISTS idx_records_session ON records(session_id);
   CREATE INDEX IF NOT EXISTS idx_flags_record ON flags(record_id);
   CREATE INDEX IF NOT EXISTS idx_events_session_seq ON events(session_id, sequence);
@@ -468,6 +476,57 @@ export class Database {
        GROUP BY r.session_id`,
       )
       .all();
+  }
+
+  // Lightweight companion to getRecordsWithFlags for the digest route's
+  // disabled/below-threshold/cache-check paths, which only ever need the live
+  // flag count and the session's latest turn timestamp — not every record's
+  // full row content or every flag row. A null latest_turn_at means the
+  // session has no records at all (used by callers to distinguish "no
+  // session" from "session with zero flags").
+  async getSessionFlagSummary(sessionId) {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(f.id) as total_flags, MAX(r.timestamp) as latest_turn_at
+       FROM records r LEFT JOIN flags f ON f.record_id = r.id
+       WHERE r.session_id = ?`,
+      )
+      .get(sessionId);
+    return { total_flags: row?.total_flags ?? 0, latest_turn_at: row?.latest_turn_at ?? null };
+  }
+
+  async getSessionDigest(sessionId) {
+    const row = this.db
+      .prepare(`SELECT * FROM session_digests WHERE session_id = ?`)
+      .get(sessionId);
+    if (!row) return null;
+    return { ...row, content: JSON.parse(row.content) };
+  }
+
+  // Upsert on session_id (primary key): a digest is regenerated wholesale on
+  // flag-count mismatch, never incrementally updated, so a single row per
+  // session is always replaced in full rather than versioned.
+  async saveSessionDigest(
+    sessionId,
+    { generated_at, flag_count_at_generation, content, model } = {},
+  ) {
+    this.db
+      .prepare(
+        `INSERT INTO session_digests (session_id, generated_at, flag_count_at_generation, content, model)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(session_id) DO UPDATE SET
+         generated_at = excluded.generated_at,
+         flag_count_at_generation = excluded.flag_count_at_generation,
+         content = excluded.content,
+         model = excluded.model`,
+      )
+      .run(
+        sessionId,
+        generated_at,
+        flag_count_at_generation,
+        JSON.stringify(content),
+        model ?? null,
+      );
   }
 
   async getRecordsWithFlags(sessionId) {

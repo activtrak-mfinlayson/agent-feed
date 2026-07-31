@@ -33,10 +33,22 @@ describe('Database migration safety', () => {
       assert.ok(tables.includes('records'));
       assert.ok(tables.includes('flags'));
       assert.ok(tables.includes('events'));
+      assert.ok(tables.includes('session_digests'));
 
       const recordCols = db.db.pragma('table_info(records)').map((c) => c.name);
       for (const expected of ['source', 'request_id', 'response_text', 'turn_index']) {
         assert.ok(recordCols.includes(expected), `records missing ${expected}`);
+      }
+
+      const digestCols = db.db.pragma('table_info(session_digests)').map((c) => c.name);
+      for (const expected of [
+        'session_id',
+        'generated_at',
+        'flag_count_at_generation',
+        'content',
+        'model',
+      ]) {
+        assert.ok(digestCols.includes(expected), `session_digests missing ${expected}`);
       }
 
       const indexes = db.db
@@ -60,14 +72,22 @@ describe('Database migration safety', () => {
     await db1.close();
 
     const db2 = new Database(dbPath);
-    await db2.init(); // must not throw on duplicate columns/indexes
+    await db2.init(); // must not throw on duplicate columns/indexes/tables
     const afterCols = db2.db
       .pragma('table_info(records)')
       .map((c) => c.name)
       .sort();
+    const tables = db2.db
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`)
+      .all()
+      .map((r) => r.name);
     await db2.close();
 
     assert.deepEqual(afterCols, beforeCols);
+    assert.ok(
+      tables.includes('session_digests'),
+      're-init must not fail to leave session_digests present',
+    );
   });
 
   it('SQLite + better-sqlite3 transaction wrap rolls back DDL on throw', async () => {

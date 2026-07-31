@@ -1,24 +1,57 @@
+import { useCallback, useMemo } from "react";
 import type { ReviewStatus } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { useBulkUpdate, useSaveNotes, useUpdateFlagStatus } from "@/hooks/use-flag-mutations";
+import { useHighlightNavigation } from "@/hooks/use-highlight-navigation";
 import { useSession } from "@/hooks/use-session";
 import { formatDate } from "@/lib/utils";
 import { HookActivity } from "./hook-activity";
 import { MCPHealth } from "./mcp-health";
+import { SessionDigest } from "./session-digest";
 import { ToolDecisionTimeline } from "./tool-decision-timeline";
 import { TurnBlock } from "./turn-block";
 
 interface SessionDetailProps {
   sessionId: string;
   modelFilter?: string;
+  // Lets a digest highlight click clear the active model filter when the
+  // flag it targets is hidden by it (see useHighlightNavigation).
+  onClearModelFilter?: () => void;
 }
 
-export function SessionDetail({ sessionId, modelFilter }: SessionDetailProps) {
+export function SessionDetail({ sessionId, modelFilter, onClearModelFilter }: SessionDetailProps) {
   const { data: allRecords, isLoading, error } = useSession(sessionId);
   const records = modelFilter ? allRecords?.filter((r) => r.model === modelFilter) : allRecords;
   const updateStatus = useUpdateFlagStatus(sessionId);
   const saveNotes = useSaveNotes(sessionId);
   const bulkUpdate = useBulkUpdate(sessionId);
+
+  // Stable identity across SessionDetail re-renders (react-query's `mutate`
+  // itself is already stable) so TurnBlock/FlagCard's memoization isn't
+  // defeated by a fresh inline closure on every render.
+  const handleFlagStatusChange = useCallback(
+    (flagId: string, status: ReviewStatus) => updateStatus.mutate({ flagId, status }),
+    [updateStatus.mutate],
+  );
+  const handleSaveNotes = useCallback(
+    (flagId: string, note: string | null, outcome: string | null) =>
+      saveNotes.mutate({ flagId, reviewerNote: note, outcome }),
+    [saveNotes.mutate],
+  );
+
+  const {
+    expandedFlagIds,
+    ringingFlagIds,
+    announcement,
+    registerFlagRef,
+    toggleFlag,
+    handleHighlightClick,
+  } = useHighlightNavigation({ sessionId, modelFilter, allRecords, onClearModelFilter });
+
+  // Digest always covers the whole session regardless of the model filter
+  // (see plan's Key Technical Decisions), so its review-status lookups need
+  // the unfiltered flag set, not the possibly-filtered `records`/`allFlags`.
+  const digestFlags = useMemo(() => (allRecords ?? []).flatMap((r) => r.flags ?? []), [allRecords]);
 
   if (isLoading)
     return (
@@ -88,8 +121,14 @@ export function SessionDetail({ sessionId, modelFilter }: SessionDetailProps) {
         </div>
       )}
 
-      {/* OTel-derived signals (rendered only when /api/sessions/:id/* returns data) */}
+      {/* Digest + OTel-derived signals (each self-hides when not applicable) */}
       <div className="space-y-6 mb-8">
+        <SessionDigest
+          sessionId={sessionId}
+          flags={digestFlags}
+          onHighlightClick={handleHighlightClick}
+          announcement={announcement}
+        />
         <ToolDecisionTimeline sessionId={sessionId} />
         <HookActivity sessionId={sessionId} />
         <MCPHealth sessionId={sessionId} />
@@ -101,10 +140,12 @@ export function SessionDetail({ sessionId, modelFilter }: SessionDetailProps) {
           key={r.id}
           record={r}
           sessionId={sessionId}
-          onFlagStatusChange={(flagId, status) => updateStatus.mutate({ flagId, status })}
-          onSaveNotes={(flagId, note, outcome) =>
-            saveNotes.mutate({ flagId, reviewerNote: note, outcome })
-          }
+          expandedFlagIds={expandedFlagIds}
+          onToggleFlag={toggleFlag}
+          ringingFlagIds={ringingFlagIds}
+          registerFlagRef={registerFlagRef}
+          onFlagStatusChange={handleFlagStatusChange}
+          onSaveNotes={handleSaveNotes}
         />
       ))}
     </div>

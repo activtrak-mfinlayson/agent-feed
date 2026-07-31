@@ -144,6 +144,28 @@ describe('buildClassifier', () => {
     assert.deepEqual(result.flags, []);
   });
 
+  it('returns empty result (not an unhandled rejection) when the fetch hangs past timeout_ms', async () => {
+    // fetchFn that never resolves unless aborted -- simulates a hung local
+    // (ollama/lmstudio) endpoint. Rejects on abort like real fetch does.
+    const hangingFetch = (_url, { signal } = {}) =>
+      new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => {
+          const err = new Error('The operation was aborted');
+          err.name = 'AbortError';
+          reject(err);
+        });
+      });
+
+    const classifier = buildClassifier(
+      { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '', timeout_ms: 50 },
+      hangingFetch,
+    );
+
+    const result = await classifier('some content');
+    assert.equal(result.response_summary, '');
+    assert.deepEqual(result.flags, []);
+  });
+
   it('builds correct endpoint for ollama provider', () => {
     let capturedUrl = null;
     const mockFetch = async (url) => {
@@ -167,5 +189,26 @@ describe('buildClassifier', () => {
         `expected ollama URL, got ${capturedUrl}`,
       );
     });
+  });
+
+  it('requests the default max_tokens budget (single-turn output is small; the digest synthesizer overrides this separately)', async () => {
+    let capturedBody;
+    const mockFetch = async (_url, opts) => {
+      capturedBody = JSON.parse(opts.body);
+      return {
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: '{"response_summary":"ok","flags":[]}' }],
+        }),
+      };
+    };
+
+    const classifier = buildClassifier(
+      { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' },
+      mockFetch,
+    );
+
+    await classifier('test');
+    assert.equal(capturedBody.max_tokens, 1000);
   });
 });

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { fetchRawRecord } from "@/api/client";
@@ -12,14 +12,59 @@ interface TurnBlockProps {
   sessionId: string;
   onFlagStatusChange: (flagId: string, status: ReviewStatus) => void;
   onSaveNotes: (flagId: string, note: string | null, outcome: string | null) => void;
+  // Expand state lives in SessionDetail (see its comments) so multiple flags
+  // across multiple turns can be independently expanded at once, and so a
+  // digest highlight click can target a specific flag in any turn.
+  expandedFlagIds: Set<string>;
+  onToggleFlag: (flagId: string) => void;
+  // Flags temporarily "ringed" by a just-clicked digest highlight.
+  ringingFlagIds: Set<string>;
+  // Registers/unregisters this flag's interactive DOM element with
+  // SessionDetail so a highlight click can scroll to and focus it.
+  registerFlagRef: (flagId: string, el: HTMLElement | null) => void;
 }
 
-export function TurnBlock({ record, sessionId, onFlagStatusChange, onSaveNotes }: TurnBlockProps) {
+function TurnBlockImpl({
+  record,
+  sessionId,
+  onFlagStatusChange,
+  onSaveNotes,
+  expandedFlagIds,
+  onToggleFlag,
+  ringingFlagIds,
+  registerFlagRef,
+}: TurnBlockProps) {
   const [rawVisible, setRawVisible] = useState(false);
   const [rawContent, setRawContent] = useState<string | null>(null);
   const [rawLoading, setRawLoading] = useState(false);
-  const [expandedFlagId, setExpandedFlagId] = useState<string | null>(null);
   const [showFullText, setShowFullText] = useState(false);
+
+  // Per-flag-id caches so FlagCard's registerRef/onToggle props keep a
+  // stable function identity across TurnBlock re-renders. Without this, the
+  // inline arrows below would be recreated every render, which (a) causes
+  // registerFlagRef's flagRefs Map to delete+re-add on every unrelated
+  // re-render, and (b) defeats FlagCard's own React.memo since its props
+  // would never be reference-equal to the previous render's.
+  const registerRefCache = useRef(new Map<string, (el: HTMLElement | null) => void>());
+  const toggleCache = useRef(new Map<string, () => void>());
+
+  function getRegisterRefCallback(flagId: string) {
+    let cached = registerRefCache.current.get(flagId);
+    if (!cached) {
+      cached = (el: HTMLElement | null) => registerFlagRef(flagId, el);
+      registerRefCache.current.set(flagId, cached);
+    }
+    return cached;
+  }
+
+  function getToggleCallback(flagId: string) {
+    let cached = toggleCache.current.get(flagId);
+    if (!cached) {
+      cached = () => onToggleFlag(flagId);
+      toggleCache.current.set(flagId, cached);
+    }
+    return cached;
+  }
 
   async function toggleRaw() {
     if (rawVisible) {
@@ -139,8 +184,10 @@ export function TurnBlock({ record, sessionId, onFlagStatusChange, onSaveNotes }
           <FlagCard
             key={f.id}
             flag={f}
-            expanded={expandedFlagId === f.id}
-            onToggle={() => setExpandedFlagId(expandedFlagId === f.id ? null : f.id)}
+            expanded={expandedFlagIds.has(f.id)}
+            onToggle={getToggleCallback(f.id)}
+            ringed={ringingFlagIds.has(f.id)}
+            registerRef={getRegisterRefCallback(f.id)}
             onStatusChange={onFlagStatusChange}
             onSaveNotes={onSaveNotes}
           />
@@ -156,3 +203,31 @@ export function TurnBlock({ record, sessionId, onFlagStatusChange, onSaveNotes }
     </div>
   );
 }
+
+// expandedFlagIds/ringingFlagIds are session-wide Sets owned by SessionDetail
+// (via useHighlightNavigation): a new Set is created on every flag toggle
+// anywhere in the session, not just within this turn. A default shallow-prop
+// comparator would see those Set references change on every toggle and
+// re-render every TurnBlock (plus its Markdown parse of the agent response)
+// regardless of which turn actually changed. Instead, only compare the
+// subset of each Set relevant to this turn's own flag ids — if none of this
+// turn's flags moved in or out of expanded/ringed, this turn doesn't need to
+// re-render just because some other turn's flag was toggled.
+function turnBlockPropsAreEqual(
+  prevProps: Readonly<TurnBlockProps>,
+  nextProps: Readonly<TurnBlockProps>,
+): boolean {
+  if (prevProps.record !== nextProps.record) return false;
+  if (prevProps.sessionId !== nextProps.sessionId) return false;
+
+  const flagIds = (nextProps.record.flags ?? []).map((f) => f.id);
+  for (const flagId of flagIds) {
+    if (prevProps.expandedFlagIds.has(flagId) !== nextProps.expandedFlagIds.has(flagId))
+      return false;
+    if (prevProps.ringingFlagIds.has(flagId) !== nextProps.ringingFlagIds.has(flagId)) return false;
+  }
+
+  return true;
+}
+
+export const TurnBlock = memo(TurnBlockImpl, turnBlockPropsAreEqual);

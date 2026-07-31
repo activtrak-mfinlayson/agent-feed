@@ -30,87 +30,204 @@ Flag types (use exactly these strings):
 Extract every qualifying flag you find. Include all flags with confidence >= 0.7.
 If there are no qualifying flags, return an empty array.`;
 
+export const DIGEST_SYNTHESIS_PROMPT = `You are condensing a coding agent session's extracted flags into a short digest for a human reviewer.
+
+Return ONLY a JSON object with no preamble, explanation, or markdown formatting. No backticks.
+
+The JSON must have this exact shape:
+{
+  "highlights": [
+    {
+      "summary": "1-2 sentence highlight describing a significant decision, risk, or pattern from the session",
+      "flag_ids": ["id of each underlying flag this highlight summarizes"]
+    }
+  ]
+}
+
+You will be given a JSON array of flags, each with an "id", "type", "content", and "confidence".
+
+Condense the flags into roughly a half-dozen (around 4-8) of the most significant highlights. Prioritize
+flags of type decision, risk, architecture, tradeoff, and constraint over routine or duplicate-looking
+flags (e.g. repeated assumption/pattern/dependency flags that don't materially change the reviewer's
+understanding of the session). Group related or duplicate flags into a single highlight referencing all
+of their ids where appropriate, rather than producing one highlight per flag.
+
+Every flag_ids value must be an id that actually appears in the input flags. If there are no significant
+flags, return an empty highlights array.`;
+
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 
-function buildAnthropicBody(model, content) {
+// Larger than the classifier's default 1000: a highlight's flag_ids array can
+// reference dozens of ids when many duplicate-looking flags get grouped
+// together, and the classifier's budget truncates that mid-JSON in practice
+// (verified against a real 860-flag session: 1000 tokens hit stop_reason
+// "max_tokens" and produced unparseable JSON; 4096 completed at ~1450 with
+// stop_reason "end_turn" and margin to spare).
+const DIGEST_MAX_TOKENS = 4096;
+
+function buildAnthropicBody(model, promptText, userMessage, maxTokens) {
   return {
     model,
-    max_tokens: 1000,
+    max_tokens: maxTokens,
+    messages: [{ role: 'user', content: `${promptText}\n\n${userMessage}` }],
+  };
+}
+
+function buildOpenAICompatibleBody(model, promptText, userMessage, maxTokens) {
+  return {
+    model,
+    max_tokens: maxTokens,
     messages: [
-      {
-        role: 'user',
-        content: `${CLASSIFICATION_PROMPT}\n\nAgent response to analyze:\n\n${content}`,
-      },
+      { role: 'system', content: promptText },
+      { role: 'user', content: userMessage },
     ],
   };
 }
 
-function buildOpenAICompatibleBody(model, content) {
-  return {
-    model,
-    max_tokens: 1000,
-    messages: [
-      { role: 'system', content: CLASSIFICATION_PROMPT },
-      { role: 'user', content: `Agent response to analyze:\n\n${content}` },
-    ],
-  };
-}
+/**
+ * Shared provider-branching request/response plumbing for Anthropic vs.
+ * OpenAI-compatible (ollama/lmstudio) LLM calls. Builds the provider-specific
+ * request, sends it, and extracts the raw text of the model's reply.
+ *
+ * Returns the response text on success, or `null` if the upstream request
+ * failed (non-ok HTTP status, network error, or timeout) -- callers are
+ * responsible for turning `null` into their own empty/failure result shape,
+ * since that shape differs between the classifier and the digest synthesizer.
+ *
+ * `config.timeout_ms` (falsy = no timeout) bounds how long the fetch is
+ * allowed to hang before it's aborted and treated as a failure. This matters
+ * most for the digest synthesizer, which -- unlike the fire-and-forget
+ * classifier -- is awaited synchronously inside a live HTTP request.
+ *
+ * `maxTokens` bounds the model's reply. The classifier's output (a handful
+ * of flags for one turn) fits comfortably in the default 1000. The digest
+ * synthesizer passes a larger budget explicitly: with hundreds of flags to
+ * condense, a highlight's flag_ids array can reference dozens of ids, and a
+ * too-small cap truncates the response mid-JSON (stop_reason: "max_tokens"),
+ * which then fails to parse and silently yields zero highlights.
+ */
+async function callLLMProvider(config, fetchFn, promptText, userMessage, maxTokens = 1000) {
+  const { provider, model, base_url, timeout_ms } = config;
 
-function parseClassifierResponse(text) {
-  try {
-    const clean = text.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(clean);
-    return {
-      response_summary: parsed.response_summary ?? '',
-      flags: Array.isArray(parsed.flags) ? parsed.flags : [],
-    };
-  } catch {
-    return { response_summary: '', flags: [] };
+  let url;
+  let body;
+  const headers = { 'Content-Type': 'application/json' };
+
+  if (provider === 'anthropic') {
+    url = ANTHROPIC_API_URL;
+    body = buildAnthropicBody(model, promptText, userMessage, maxTokens);
+    // API key injected by environment at runtime
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (apiKey) headers['x-api-key'] = apiKey;
+    headers['anthropic-version'] = '2023-06-01';
+  } else {
+    // ollama and lmstudio both expose OpenAI-compatible /v1/chat/completions
+    url = `${base_url}/v1/chat/completions`;
+    body = buildOpenAICompatibleBody(model, promptText, userMessage, maxTokens);
   }
-}
 
-export function buildClassifier(config, fetchFn = fetch) {
-  const { provider, model, base_url } = config;
+  const controller = new AbortController();
+  const timer = timeout_ms ? setTimeout(() => controller.abort(), timeout_ms) : null;
 
-  return async function classify(content) {
-    let url;
-    let body;
-    const headers = { 'Content-Type': 'application/json' };
-
-    if (provider === 'anthropic') {
-      url = ANTHROPIC_API_URL;
-      body = buildAnthropicBody(model, content);
-      // API key injected by environment at runtime
-      const apiKey = process.env.ANTHROPIC_API_KEY;
-      if (apiKey) headers['x-api-key'] = apiKey;
-      headers['anthropic-version'] = '2023-06-01';
-    } else {
-      // ollama and lmstudio both expose OpenAI-compatible /v1/chat/completions
-      url = `${base_url}/v1/chat/completions`;
-      body = buildOpenAICompatibleBody(model, content);
-    }
-
-    const response = await fetchFn(url, {
+  let response;
+  try {
+    response = await fetchFn(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
+  } catch {
+    // Covers both abort-on-timeout and ordinary network failures -- both are
+    // treated the same as a non-ok response so callers' null-handling is
+    // unchanged and no unhandled rejection escapes this call.
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 
-    if (!response.ok) {
+  if (!response.ok) {
+    return null;
+  }
+
+  const data = await response.json();
+
+  // Handle both Anthropic and OpenAI response shapes
+  if (provider === 'anthropic') {
+    return data.content?.find((b) => b.type === 'text')?.text ?? '';
+  }
+  return data.choices?.[0]?.message?.content ?? '';
+}
+
+// Shared by both response parsers below: strips markdown code fences (models
+// sometimes wrap JSON in ```json blocks despite being told not to) and parses
+// the result, returning null on any failure so callers apply their own
+// field-specific defaults rather than duplicating this try/catch.
+function parseFencedJson(text) {
+  try {
+    return JSON.parse(text.replace(/```json|```/g, '').trim());
+  } catch {
+    return null;
+  }
+}
+
+function parseClassifierResponse(text) {
+  const parsed = parseFencedJson(text);
+  return {
+    response_summary: parsed?.response_summary ?? '',
+    flags: Array.isArray(parsed?.flags) ? parsed.flags : [],
+  };
+}
+
+function parseDigestResponse(text) {
+  const parsed = parseFencedJson(text);
+  return {
+    highlights: Array.isArray(parsed?.highlights) ? parsed.highlights : [],
+  };
+}
+
+export function buildClassifier(config, fetchFn = fetch) {
+  return async function classify(content) {
+    const text = await callLLMProvider(
+      config,
+      fetchFn,
+      CLASSIFICATION_PROMPT,
+      `Agent response to analyze:\n\n${content}`,
+    );
+
+    if (text === null) {
       return { response_summary: '', flags: [] };
     }
 
-    const data = await response.json();
+    return parseClassifierResponse(text);
+  };
+}
 
-    // Handle both Anthropic and OpenAI response shapes
-    let text = '';
-    if (provider === 'anthropic') {
-      text = data.content?.find((b) => b.type === 'text')?.text ?? '';
-    } else {
-      text = data.choices?.[0]?.message?.content ?? '';
+/**
+ * Builds a digest synthesizer: an async function that condenses a session's
+ * flags into a small set of validated, highlight-worthy summaries. Reuses
+ * the same provider-branching plumbing as `buildClassifier`, with a
+ * different prompt and expected response shape.
+ */
+export function buildDigestSynthesizer(config, fetchFn = fetch) {
+  return async function synthesize(flags) {
+    if (!Array.isArray(flags) || flags.length === 0) {
+      return { highlights: [] };
     }
 
-    return parseClassifierResponse(text);
+    const text = await callLLMProvider(
+      config,
+      fetchFn,
+      DIGEST_SYNTHESIS_PROMPT,
+      `Flags to synthesize:\n\n${JSON.stringify(flags)}`,
+      DIGEST_MAX_TOKENS,
+    );
+
+    if (text === null) {
+      return { highlights: [] };
+    }
+
+    return parseDigestResponse(text);
   };
 }
 
@@ -157,6 +274,7 @@ export async function validateClassifierWithFallback(config, fetchFn = fetch) {
       provider: 'anthropic',
       model: 'claude-haiku-4-5-20251001',
       base_url: '',
+      timeout_ms: 30_000,
     };
     const result = await validateClassifier(anthropicConfig, fetchFn);
     if (result.ok) {
